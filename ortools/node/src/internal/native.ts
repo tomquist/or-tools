@@ -1,0 +1,62 @@
+// Copyright 2010-2025 Google LLC
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { NativeModule } from './native.js';
+
+const require = createRequire(import.meta.url);
+const here = dirname(fileURLToPath(import.meta.url));
+
+// `node-gyp-build` resolves to `prebuilds/<triplet>/node.napi.node` for the
+// host platform. The package root is two levels up from src/internal/.
+//
+// node-gyp-build is a CommonJS module; we load it via createRequire to keep
+// the rest of the file ESM-clean.
+const packageRoot = resolve(here, '..', '..');
+
+let mod: NativeModule;
+try {
+  // The default export from node-gyp-build is the loaded native binding.
+  mod = require('node-gyp-build')(packageRoot) as NativeModule;
+} catch (err) {
+  const platform = process.platform;
+  const arch = process.arch;
+  const libc =
+    platform === 'linux' && process.report?.getReport
+      ? // process.report.glibcVersionRuntime is undefined on musl.
+        ((process.report.getReport() as { header?: { glibcVersionRuntime?: string } })
+          .header?.glibcVersionRuntime
+          ? 'glibc'
+          : 'musl')
+      : '';
+  const triplet =
+    platform === 'win32'
+      ? 'win32-x64'
+      : platform === 'darwin'
+        ? `darwin-${arch === 'arm64' ? 'arm64' : 'x64'}`
+        : platform === 'linux'
+          ? `linux-${arch === 'arm64' ? 'arm64' : 'x64'}-${libc || 'glibc'}`
+          : `${platform}-${arch}`;
+  const cause = err instanceof Error ? err.message : String(err);
+  throw new Error(
+    `[@google-ortools/cp-sat] no prebuilt binary for ${triplet}.\n` +
+      `Underlying error: ${cause}\n` +
+      `Build from source with:\n` +
+      `  cd ortools/node && npx cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON\n` +
+      `or follow CONTRIBUTING.md.`,
+  );
+}
+
+export const native: NativeModule = mod;
