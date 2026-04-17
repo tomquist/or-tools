@@ -19,6 +19,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { readdirSync } from 'node:fs';
+
 function hasNative(): boolean {
   const dir =
     process.platform === 'win32'
@@ -28,7 +30,6 @@ function hasNative(): boolean {
         : `linux-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
   const prebuilds = join(import.meta.dirname, '..', 'prebuilds', dir);
   try {
-    const { readdirSync } = require('node:fs') as typeof import('node:fs');
     return readdirSync(prebuilds).some((f) => f.endsWith('.node'));
   } catch {
     return existsSync(join(prebuilds, 'node.napi.node'));

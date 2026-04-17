@@ -32,28 +32,27 @@ async function main(): Promise<void> {
   const status = await solver.solve(model);
 
   if (status === CpSolverStatus.OPTIMAL || status === CpSolverStatus.FEASIBLE) {
-    // eslint-disable-next-line no-console
+     
     console.log(`Maximum of objective function: ${solver.objectiveValue}`);
-    // eslint-disable-next-line no-console
+     
     console.log(`x = ${solver.value(x)}`);
-    // eslint-disable-next-line no-console
+     
     console.log(`y = ${solver.value(y)}`);
-    // eslint-disable-next-line no-console
+     
     console.log(`z = ${solver.value(z)}`);
   } else {
-    // eslint-disable-next-line no-console
     console.error(`No solution found. Status: ${solver.statusName()}`);
   }
 
-  // eslint-disable-next-line no-console
+   
   console.log('Statistics');
-  // eslint-disable-next-line no-console
+   
   console.log(`  status   : ${solver.statusName()}`);
-  // eslint-disable-next-line no-console
+   
   console.log(`  conflicts: ${solver.numConflicts}`);
-  // eslint-disable-next-line no-console
+   
   console.log(`  branches : ${solver.numBranches}`);
-  // eslint-disable-next-line no-console
+   
   console.log(`  wall time: ${solver.wallTime} s`);
 }
 

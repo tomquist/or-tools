@@ -52,9 +52,9 @@ async function main(): Promise<void> {
   const cb = new NQueenPrinter(queens);
   await solver.solve(model, { callback: cb });
 
-  // eslint-disable-next-line no-console
+   
   console.log(`Solutions found: ${cb.count}`);
-  // eslint-disable-next-line no-console
+   
   console.log(`Wall time: ${solver.wallTime} s`);
 }
 

@@ -69,12 +69,12 @@ async function main(): Promise<void> {
   const status = await solver.solve(model);
 
   if (status === CpSolverStatus.OPTIMAL || status === CpSolverStatus.FEASIBLE) {
-    // eslint-disable-next-line no-console
+     
     console.log(`Total cost = ${solver.objectiveValue}`);
     for (let w = 0; w < numWorkers; w++) {
       for (let t = 0; t < numTasks; t++) {
         if (solver.booleanValue(x[w]![t]!)) {
-          // eslint-disable-next-line no-console
+           
           console.log(
             `Worker ${w} assigned to task ${t} with cost ${costs[w]![t]}`,
           );
@@ -82,7 +82,6 @@ async function main(): Promise<void> {
       }
     }
   } else {
-    // eslint-disable-next-line no-console
     console.error(`No solution found. Status: ${solver.statusName()}`);
   }
 }

@@ -17,13 +17,13 @@
 // LinearConstraintProto.
 
 import { BoundedLinearExpression } from './boundedLinearExpression.js';
-import { Domain } from './domain.js';
+import type { Domain } from './domain.js';
+import type { IntegralT } from './numbers.js';
 import {
   asInt64,
   fitsInSafeNumber,
   INT64_MAX,
   INT64_MIN,
-  type IntegralT,
 } from './numbers.js';
 
 /** Anything that can be coerced into a LinearExpr. */
@@ -272,6 +272,10 @@ function buildFlat(root: LinearExpr): FlatLinearExpr {
   let offset: bigint = 0n;
   let floatOffset = 0;
   let isFloat = false;
+  // Suppress "assigned but never read" — we keep floatOffset around for
+  // future use in FlatFloatExpr emission paths, even though the integer
+  // flatten path doesn't surface it.
+  void floatOffset;
 
   const sink: LinearAccumulator = {
     markFloat() {

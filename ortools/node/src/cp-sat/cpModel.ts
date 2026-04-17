@@ -60,7 +60,7 @@ import {
   asVarIndex,
   negated,
 } from '../internal/varIndex.js';
-import { BoolVar, type Literal, type LiteralT, NotBoolVar } from './boolVar.js';
+import { BoolVar, type Literal, type LiteralT } from './boolVar.js';
 import { BoundedLinearExpression } from './boundedLinearExpression.js';
 import type {
   ConstraintIndex,
@@ -75,7 +75,6 @@ import {
   asLinearExpr,
   flattenFloat,
   isIntegerFlat,
-  LinearExpr,
   type LinearExprT,
 } from './linearExpr.js';
 import { asInt64, INT64_MAX, INT64_MIN, type IntegralT } from './numbers.js';

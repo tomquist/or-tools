@@ -20,10 +20,8 @@ import { fromBinary, toBinary } from '@bufbuild/protobuf';
 import type {
   CpSolverResponse,
 } from '../proto/ortools/sat/cp_model_pb.js';
-import {
-  CpSolverResponseSchema,
-  CpSolverStatus,
-} from '../proto/ortools/sat/cp_model_pb.js';
+import type { CpSolverStatus } from '../proto/ortools/sat/cp_model_pb.js';
+import { CpSolverResponseSchema } from '../proto/ortools/sat/cp_model_pb.js';
 import { native } from '../internal/native.js';
 import type { NativeSolutionContext } from '../internal/native.d.js';
 import { runWithContext } from '../internal/currentContext.js';
@@ -33,11 +31,8 @@ import type {
   CpSolverSolutionCallback,
 } from './solutionCallback.js';
 import type { SolutionContext } from './solutionContext.js';
-import {
-  asLinearExpr,
-  type LinearExprT,
-  LinearExpr,
-} from './linearExpr.js';
+import type { LinearExpr, LinearExprT } from './linearExpr.js';
+import { asLinearExpr } from './linearExpr.js';
 import {
   createSatParameters,
   SatParametersSchema,
