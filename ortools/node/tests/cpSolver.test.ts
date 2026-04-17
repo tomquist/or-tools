@@ -112,7 +112,7 @@ d('CpSolver — native', () => {
     expect(lastValue).toBe(3n);
   });
 
-  it('stopSearch cancels a long solve', async () => {
+  it('stopSearch cancels a long solve within DoD budget (<500ms post-stop)', async () => {
     const { CpModel, CpSolver } = await import('../src/index.js');
     const m = new CpModel();
     // Intentionally loose model so the solver spins.
@@ -125,11 +125,14 @@ d('CpSolver — native', () => {
     const solver = new CpSolver();
     solver.parameters.maxTimeInSeconds = 30;
     const pending = solver.solve(m);
-    setTimeout(() => solver.stopSearch(), 50);
-    const t0 = Date.now();
+    // Give the solver time to actually start, then measure from the moment
+    // stopSearch() fires to the moment the promise resolves.
+    await new Promise((r) => setTimeout(r, 50));
+    const stopAt = Date.now();
+    solver.stopSearch();
     await pending;
-    const dt = Date.now() - t0;
-    expect(dt).toBeLessThan(5000);
+    const dt = Date.now() - stopAt;
+    expect(dt).toBeLessThan(500);
   });
 
   it('AbortSignal resolves with partial response (D7)', async () => {
