@@ -137,6 +137,7 @@ If no prebuilt binary matches your platform:
 ```
 cd ortools/node
 npx cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON
+node scripts/prebuild.mjs    # or: npm run prebuild:native
 ```
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for more.

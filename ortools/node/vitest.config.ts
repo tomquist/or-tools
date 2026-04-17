@@ -3,6 +3,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
+    exclude: [
+      '**/node_modules/**',
+      'tests/fixtures/**',
+    ],
     testTimeout: 30000,
     hookTimeout: 30000,
     // The N-API addon spawns C++ solver threads and uses TSFNs that outlive
