@@ -39,7 +39,8 @@ The suite contains:
 *   Graph algorithms (shortest paths, min cost flow, max flow, linear sum
     assignment).
 
-We wrote OR-Tools in C++, but provide wrappers in Python, C# and Java.
+We wrote OR-Tools in C++, but provide wrappers in Python, C#, Java, and
+Node.js/TypeScript (CP-SAT only, see [`ortools/node`](ortools/node)).
 
 ## Codemap
 
