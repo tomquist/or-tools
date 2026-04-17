@@ -21,45 +21,62 @@ const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 
 // `node-gyp-build` resolves to `prebuilds/<triplet>/node.napi.node` for the
-// host platform. The package root is two levels up from src/internal/.
-//
-// node-gyp-build is a CommonJS module; we load it via createRequire to keep
-// the rest of the file ESM-clean.
+// host platform. The package root is two levels up from src/internal/
+// (relative to the .js file at runtime), and one level up at source time.
+// Both layouts are safe because node-gyp-build walks up looking for a
+// prebuilds/ directory.
 const packageRoot = resolve(here, '..', '..');
 
 type NodeGypBuild = (root: string) => unknown;
 
-let mod: NativeTypes.NativeModule;
-try {
-  const load = require('node-gyp-build') as NodeGypBuild;
-  mod = load(packageRoot) as NativeTypes.NativeModule;
-} catch (err) {
-  const platform = process.platform;
-  const arch = process.arch;
-  const libc =
-    platform === 'linux' && process.report?.getReport
-      ? ((process.report.getReport() as { header?: { glibcVersionRuntime?: string } })
-          .header?.glibcVersionRuntime
-          ? 'glibc'
-          : 'musl')
-      : '';
-  const triplet =
-    platform === 'win32'
-      ? 'win32-x64'
-      : platform === 'darwin'
-        ? `darwin-${arch === 'arm64' ? 'arm64' : 'x64'}`
-        : platform === 'linux'
-          ? `linux-${arch === 'arm64' ? 'arm64' : 'x64'}-${libc || 'glibc'}`
-          : `${platform}-${arch}`;
-  const cause = err instanceof Error ? err.message : String(err);
-  throw new Error(
-    `[@google-ortools/cp-sat] no prebuilt binary for ${triplet}.\n` +
-      `Underlying error: ${cause}\n` +
-      `Build from source with:\n` +
-      `  cd ortools/node && npx cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON\n` +
-      `or follow CONTRIBUTING.md.`,
-  );
+let cached: NativeTypes.NativeModule | undefined;
+
+function loadNative(): NativeTypes.NativeModule {
+  if (cached) return cached;
+  try {
+    const load = require('node-gyp-build') as NodeGypBuild;
+    cached = load(packageRoot) as NativeTypes.NativeModule;
+    return cached;
+  } catch (err) {
+    const platform = process.platform;
+    const arch = process.arch;
+    const libc =
+      platform === 'linux' && process.report?.getReport
+        ? ((process.report.getReport() as { header?: { glibcVersionRuntime?: string } })
+            .header?.glibcVersionRuntime
+            ? 'glibc'
+            : 'musl')
+        : '';
+    const triplet =
+      platform === 'win32'
+        ? 'win32-x64'
+        : platform === 'darwin'
+          ? `darwin-${arch === 'arm64' ? 'arm64' : 'x64'}`
+          : platform === 'linux'
+            ? `linux-${arch === 'arm64' ? 'arm64' : 'x64'}-${libc || 'glibc'}`
+            : `${platform}-${arch}`;
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `[@google-ortools/cp-sat] no prebuilt binary for ${triplet}.\n` +
+        `Underlying error: ${cause}\n` +
+        `Build from source with:\n` +
+        `  cd ortools/node && npx cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON\n` +
+        `or follow CONTRIBUTING.md.`,
+    );
+  }
 }
 
-export const native: NativeTypes.NativeModule = mod;
-export type { NativeTypes };
+/**
+ * Lazily-loaded native module. Property access triggers the load; this lets
+ * pure-TS code paths (e.g. building a model without solving) work even when
+ * no prebuild is available.
+ */
+export const native: NativeTypes.NativeModule = new Proxy(
+  {} as NativeTypes.NativeModule,
+  {
+    get(_target, prop) {
+      const mod = loadNative() as unknown as Record<string | symbol, unknown>;
+      return mod[prop];
+    },
+  },
+);

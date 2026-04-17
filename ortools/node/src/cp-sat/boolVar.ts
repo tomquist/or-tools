@@ -16,8 +16,11 @@ import { Domain } from './domain.js';
 import { IntVar } from './intVar.js';
 import { LinearExpr, mul, type LinearAccumulator } from './linearExpr.js';
 
-/** A Literal is either a BoolVar or its negation. */
-export interface Literal {
+/**
+ * A Literal is either a BoolVar or its negation. Every Literal is also a
+ * LinearExpr so it composes with the algebra (e.g. `sum(literals)`).
+ */
+export interface Literal extends LinearExpr {
   /**
    * Proto-level signed literal: >= 0 = variable index, < 0 = negation
    * encoded as (-index - 1).
