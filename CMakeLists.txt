@@ -113,9 +113,11 @@ option(BUILD_JAVA "Build Java Library" OFF)
 message(STATUS "Build Java: ${BUILD_JAVA}")
 option(BUILD_DOTNET "Build .NET Library" OFF)
 message(STATUS "Build .Net: ${BUILD_DOTNET}")
+option(BUILD_NODE "Build Node.js Library" OFF)
+message(STATUS "Build Node: ${BUILD_NODE}")
 
 # If wrapper are built, we need to have the install rpath in BINARY_DIR to package
-if(BUILD_PYTHON OR BUILD_JAVA OR BUILD_DOTNET)
+if(BUILD_PYTHON OR BUILD_JAVA OR BUILD_DOTNET OR BUILD_NODE)
   set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 endif()
 
@@ -141,6 +143,8 @@ CMAKE_DEPENDENT_OPTION(BUILD_JAVA_SAMPLES "Build java samples" ON "BUILD_SAMPLES
 message(STATUS "Build Java samples: ${BUILD_JAVA_SAMPLES}")
 CMAKE_DEPENDENT_OPTION(BUILD_DOTNET_SAMPLES "Build dotnet samples" ON "BUILD_SAMPLES;BUILD_DOTNET" OFF)
 message(STATUS "Build .Net samples: ${BUILD_DOTNET_SAMPLES}")
+CMAKE_DEPENDENT_OPTION(BUILD_NODE_SAMPLES "Build node samples" ON "BUILD_SAMPLES;BUILD_NODE" OFF)
+message(STATUS "Build Node samples: ${BUILD_NODE_SAMPLES}")
 
 ## Examples
 option(BUILD_EXAMPLES "Build examples" ON)
@@ -153,6 +157,8 @@ CMAKE_DEPENDENT_OPTION(BUILD_JAVA_EXAMPLES "Build java examples" ON "BUILD_EXAMP
 message(STATUS "Build Java examples: ${BUILD_JAVA_EXAMPLES}")
 CMAKE_DEPENDENT_OPTION(BUILD_DOTNET_EXAMPLES "Build dotnet examples" ON "BUILD_EXAMPLES;BUILD_DOTNET" OFF)
 message(STATUS "Build .Net examples: ${BUILD_DOTNET_EXAMPLES}")
+CMAKE_DEPENDENT_OPTION(BUILD_NODE_EXAMPLES "Build node examples" ON "BUILD_EXAMPLES;BUILD_NODE" OFF)
+message(STATUS "Build Node examples: ${BUILD_NODE_EXAMPLES}")
 
 option(BUILD_DOC "Build documentation" OFF)
 message(STATUS "Build documentation: ${BUILD_DOC}")
@@ -160,8 +166,8 @@ CMAKE_DEPENDENT_OPTION(INSTALL_DOC "Install doc" ON "BUILD_CXX AND BUILD_DOC" OF
 message(STATUS "Install doc: ${INSTALL_DOC}")
 
 # By default all dependencies are NOT built (i.e. BUILD_DEPS=OFF),
-# BUT if building any wrappers (Python, Java or .Net) then BUILD_DEPS=ON.
-if(BUILD_PYTHON OR BUILD_JAVA OR BUILD_DOTNET)
+# BUT if building any wrappers (Python, Java, .Net or Node) then BUILD_DEPS=ON.
+if(BUILD_PYTHON OR BUILD_JAVA OR BUILD_DOTNET OR BUILD_NODE)
   option(BUILD_DEPS "Build all dependencies" ON)
 else()
   option(BUILD_DEPS "Build all dependencies" OFF)
@@ -451,6 +457,7 @@ include(glop)
 include(python)
 include(java)
 include(dotnet)
+include(node)
 
 # Since samples mix all languages we must parse them once we have included all
 # <language>.cmake files

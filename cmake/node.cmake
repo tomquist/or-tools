@@ -1,0 +1,194 @@
+# Copyright 2010-2025 Google LLC
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+if(NOT BUILD_NODE)
+  return()
+endif()
+
+if(NOT TARGET ${PROJECT_NAMESPACE}::ortools)
+  message(FATAL_ERROR "Node: missing ${PROJECT_NAMESPACE}::ortools TARGET")
+endif()
+
+# Locate Node.js + npm.
+find_program(NODE_EXECUTABLE NAMES node REQUIRED)
+find_program(NPM_EXECUTABLE NAMES npm REQUIRED)
+message(STATUS "Found Node: ${NODE_EXECUTABLE}")
+message(STATUS "Found npm: ${NPM_EXECUTABLE}")
+
+execute_process(
+  COMMAND ${NODE_EXECUTABLE} --version
+  OUTPUT_VARIABLE NODE_VERSION_RAW
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+message(STATUS "Node version: ${NODE_VERSION_RAW}")
+
+# Node.js 20+ ships NAPI 9. We target NAPI 9 as the baseline.
+set(NODE_NAPI_VERSION 9)
+
+# Compute the prebuild triplet.
+if(WIN32)
+  set(NODE_NATIVE_TRIPLET "win32-x64")
+elseif(APPLE)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)")
+    set(NODE_NATIVE_TRIPLET "darwin-arm64")
+  else()
+    set(NODE_NATIVE_TRIPLET "darwin-x64")
+  endif()
+elseif(UNIX)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)")
+    set(_NODE_ARCH "arm64")
+  else()
+    set(_NODE_ARCH "x64")
+  endif()
+  if(EXISTS "/etc/alpine-release")
+    set(NODE_NATIVE_TRIPLET "linux-${_NODE_ARCH}-musl")
+    message(WARNING "Node: musl/Alpine detected — prebuilt binaries are not "
+                    "shipped for v1; building from source.")
+  else()
+    set(NODE_NATIVE_TRIPLET "linux-${_NODE_ARCH}-glibc")
+  endif()
+else()
+  message(FATAL_ERROR "Node: unsupported platform")
+endif()
+message(STATUS "Node native triplet: ${NODE_NATIVE_TRIPLET}")
+
+set(NODE_PROJECT_DIR ${PROJECT_SOURCE_DIR}/ortools/node)
+set(NODE_PREBUILDS_DIR ${NODE_PROJECT_DIR}/prebuilds/${NODE_NATIVE_TRIPLET})
+set(NODE_OUTPUT_NAME "node.napi.node")
+
+# Install npm dependencies (devDeps include node-addon-api & node-api-headers).
+message(STATUS "Node: running 'npm install' in ${NODE_PROJECT_DIR}")
+execute_process(
+  COMMAND ${NPM_EXECUTABLE} install --no-audit --no-fund --include=dev
+  WORKING_DIRECTORY ${NODE_PROJECT_DIR}
+  RESULT_VARIABLE _npm_install_result)
+if(NOT _npm_install_result EQUAL 0)
+  message(FATAL_ERROR "Node: 'npm install' failed (exit ${_npm_install_result})")
+endif()
+
+# Resolve include dirs from the locally-installed packages.
+execute_process(
+  COMMAND ${NODE_EXECUTABLE} -p "require('node-addon-api').include_dir"
+  WORKING_DIRECTORY ${NODE_PROJECT_DIR}
+  OUTPUT_VARIABLE NODE_ADDON_API_DIR
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE _resolve_naa)
+if(NOT _resolve_naa EQUAL 0)
+  message(FATAL_ERROR "Node: failed to resolve 'node-addon-api' include dir")
+endif()
+message(STATUS "node-addon-api include: ${NODE_ADDON_API_DIR}")
+
+execute_process(
+  COMMAND ${NODE_EXECUTABLE} -p "require('node-api-headers').include_dir"
+  WORKING_DIRECTORY ${NODE_PROJECT_DIR}
+  OUTPUT_VARIABLE NODE_API_HEADERS_DIR
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE _resolve_nah)
+if(NOT _resolve_nah EQUAL 0)
+  message(FATAL_ERROR "Node: failed to resolve 'node-api-headers' include dir")
+endif()
+message(STATUS "node-api-headers include: ${NODE_API_HEADERS_DIR}")
+
+# The N-API addon: a MODULE library with a .node suffix.
+set(NODE_ADDON_SOURCES
+  ${NODE_PROJECT_DIR}/src/cpp/binding.cc
+  ${NODE_PROJECT_DIR}/src/cpp/solve_wrapper.cc
+  ${NODE_PROJECT_DIR}/src/cpp/cp_sat_helper.cc
+  ${NODE_PROJECT_DIR}/src/cpp/c_api_binding.cc
+)
+
+if(WIN32)
+  list(APPEND NODE_ADDON_SOURCES ${NODE_PROJECT_DIR}/src/cpp/win_delay_load_hook.cc)
+endif()
+
+add_library(ortools_cpsat_node MODULE ${NODE_ADDON_SOURCES})
+
+target_include_directories(ortools_cpsat_node PRIVATE
+  ${NODE_ADDON_API_DIR}
+  ${NODE_API_HEADERS_DIR})
+
+target_compile_definitions(ortools_cpsat_node PRIVATE
+  NAPI_VERSION=${NODE_NAPI_VERSION}
+  NODE_ADDON_API_CPP_EXCEPTIONS
+  NODE_ADDON_API_DISABLE_DEPRECATED
+  BUILDING_NODE_EXTENSION)
+
+set_target_properties(ortools_cpsat_node PROPERTIES
+  PREFIX ""
+  SUFFIX ".node"
+  POSITION_INDEPENDENT_CODE ON
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN ON
+  OUTPUT_NAME "ortools_cpsat_node"
+  LIBRARY_OUTPUT_DIRECTORY ${NODE_PREBUILDS_DIR}
+  RUNTIME_OUTPUT_DIRECTORY ${NODE_PREBUILDS_DIR})
+
+# Per-config output dirs (multi-config generators).
+foreach(_cfg IN LISTS CMAKE_CONFIGURATION_TYPES)
+  string(TOUPPER ${_cfg} _CFG)
+  set_target_properties(ortools_cpsat_node PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY_${_CFG} ${NODE_PREBUILDS_DIR}
+    RUNTIME_OUTPUT_DIRECTORY_${_CFG} ${NODE_PREBUILDS_DIR})
+endforeach()
+
+if(NOT MSVC)
+  target_compile_options(ortools_cpsat_node PRIVATE
+    -Os -fdata-sections -ffunction-sections)
+endif()
+
+# Link against the OR-Tools aggregate (which transitively pulls in CP-SAT,
+# absl, protobuf, etc.).
+target_link_libraries(ortools_cpsat_node PRIVATE ${PROJECT_NAMESPACE}::ortools)
+
+if(WIN32)
+  target_link_libraries(ortools_cpsat_node PRIVATE delayimp)
+  if(EXISTS "${NODE_API_HEADERS_DIR}/def/node_api.def")
+    target_link_libraries(ortools_cpsat_node PRIVATE
+      "${NODE_API_HEADERS_DIR}/def/node_api.def")
+  endif()
+  set_property(TARGET ortools_cpsat_node APPEND_STRING PROPERTY
+    LINK_FLAGS " /DELAYLOAD:NODE.EXE")
+elseif(APPLE)
+  set_property(TARGET ortools_cpsat_node APPEND_STRING PROPERTY
+    LINK_FLAGS " -undefined dynamic_lookup -Wl,-dead_strip")
+  add_custom_command(TARGET ortools_cpsat_node POST_BUILD
+    COMMAND codesign -s - --force $<TARGET_FILE:ortools_cpsat_node>
+    VERBATIM)
+elseif(UNIX)
+  target_link_options(ortools_cpsat_node PRIVATE
+    -Wl,--gc-sections
+    -Wl,--exclude-libs,ALL
+    "-Wl,--version-script=${NODE_PROJECT_DIR}/version.lds")
+endif()
+
+# Convenience: build the TS layer too. These targets are best-effort and skip
+# if Node 20+ isn't available; the CI/release path uses scripts/prebuild.mjs
+# directly.
+add_custom_target(node_ts
+  COMMAND ${NPM_EXECUTABLE} run build:proto
+  COMMAND ${NPM_EXECUTABLE} run build:ts
+  WORKING_DIRECTORY ${NODE_PROJECT_DIR}
+  COMMENT "Building Node TS layer"
+  USES_TERMINAL)
+
+add_custom_target(node_package
+  DEPENDS ortools_cpsat_node node_ts
+  COMMAND ${CMAKE_COMMAND} -E echo
+    "Node package built at ${NODE_PROJECT_DIR}"
+  COMMENT "Assembling @google-ortools/cp-sat package")
+
+add_custom_target(node_test
+  DEPENDS ortools_cpsat_node
+  COMMAND ${NPM_EXECUTABLE} test
+  WORKING_DIRECTORY ${NODE_PROJECT_DIR}
+  COMMENT "Running Node tests"
+  USES_TERMINAL)
