@@ -16,6 +16,8 @@
 // the active SolutionContext that was passed to onSolutionCallback.
 
 import type { SolutionContext } from '../cp-sat/solutionContext.js';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _Keep = SolutionContext;
 
 let current: SolutionContext | undefined;
 

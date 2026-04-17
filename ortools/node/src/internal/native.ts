@@ -14,7 +14,8 @@
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { NativeModule } from './native.js';
+
+import type * as NativeTypes from './native.d.js';
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -26,17 +27,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 // the rest of the file ESM-clean.
 const packageRoot = resolve(here, '..', '..');
 
-let mod: NativeModule;
+type NodeGypBuild = (root: string) => unknown;
+
+let mod: NativeTypes.NativeModule;
 try {
-  // The default export from node-gyp-build is the loaded native binding.
-  mod = require('node-gyp-build')(packageRoot) as NativeModule;
+  const load = require('node-gyp-build') as NodeGypBuild;
+  mod = load(packageRoot) as NativeTypes.NativeModule;
 } catch (err) {
   const platform = process.platform;
   const arch = process.arch;
   const libc =
     platform === 'linux' && process.report?.getReport
-      ? // process.report.glibcVersionRuntime is undefined on musl.
-        ((process.report.getReport() as { header?: { glibcVersionRuntime?: string } })
+      ? ((process.report.getReport() as { header?: { glibcVersionRuntime?: string } })
           .header?.glibcVersionRuntime
           ? 'glibc'
           : 'musl')
@@ -59,4 +61,5 @@ try {
   );
 }
 
-export const native: NativeModule = mod;
+export const native: NativeTypes.NativeModule = mod;
+export type { NativeTypes };

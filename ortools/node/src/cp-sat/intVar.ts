@@ -31,7 +31,7 @@ export class IntVar extends LinearExpr {
     sink.addTerm(this.index as number, coeff);
   }
 
-  toString(): string {
+  override toString(): string {
     return this.name || `var#${String(this.index)}`;
   }
 }

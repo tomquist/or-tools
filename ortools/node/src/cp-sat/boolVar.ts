@@ -67,7 +67,7 @@ export class NotBoolVar extends LinearExpr implements Literal {
     return this.negatedOf;
   }
 
-  toString(): string {
+  override toString(): string {
     return this.name;
   }
 }

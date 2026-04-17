@@ -14,9 +14,7 @@
 // Mirror of operations_research::Domain. Stored as a sorted, disjoint flat
 // array [lo0, hi0, lo1, hi1, ...] with lo_i <= hi_i and hi_i + 1 < lo_{i+1}.
 
-import { asInt64, INT64_MAX, INT64_MIN } from './numbers.js';
-
-export type IntegralT = bigint | number;
+import { asInt64, INT64_MAX, INT64_MIN, type IntegralT } from './numbers.js';
 
 export class Domain {
   /** Internal flat-intervals representation. Always canonicalised. */

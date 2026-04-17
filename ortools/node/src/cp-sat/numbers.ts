@@ -13,6 +13,9 @@
 
 // Numeric coercion / validation helpers.
 
+/** A numeric value that can be coerced to int64. */
+export type IntegralT = bigint | number;
+
 export const INT64_MAX: bigint = 9223372036854775807n;
 export const INT64_MIN: bigint = -9223372036854775808n;
 export const INT32_MAX = 2147483647;

@@ -21,10 +21,8 @@
 
 import { create } from '@bufbuild/protobuf';
 
-import {
-  SatParameters as SatParametersType,
-  SatParametersSchema,
-} from '../proto/ortools/sat/sat_parameters_pb.js';
+import type { SatParameters as SatParametersType } from '../proto/ortools/sat/sat_parameters_pb.js';
+import { SatParametersSchema } from '../proto/ortools/sat/sat_parameters_pb.js';
 
 export type SatParameters = SatParametersType;
 export { SatParametersSchema };
