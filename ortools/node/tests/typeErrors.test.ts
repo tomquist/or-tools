@@ -47,9 +47,7 @@ describe('compile-time type guards (D4, D15)', () => {
       { cwd: pkgRoot, encoding: 'utf8' },
     );
     if (res.status !== 0) {
-      // eslint-disable-next-line no-console
       console.error('stdout:', res.stdout);
-      // eslint-disable-next-line no-console
       console.error('stderr:', res.stderr);
     }
     expect(res.status).toBe(0);
