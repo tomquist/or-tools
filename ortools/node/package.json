@@ -1,0 +1,67 @@
+{
+  "name": "@google-ortools/cp-sat",
+  "version": "9.15.0-node.0",
+  "description": "Google OR-Tools CP-SAT solver bindings for Node.js / TypeScript.",
+  "license": "Apache-2.0",
+  "homepage": "https://developers.google.com/optimization",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/google/or-tools.git",
+    "directory": "ortools/node"
+  },
+  "keywords": [
+    "ortools",
+    "or-tools",
+    "cp-sat",
+    "constraint-programming",
+    "optimization",
+    "solver"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "prebuilds/",
+    "src/cpp/",
+    "binding.gyp.disabled",
+    "version.lds",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build:proto": "buf generate --path ../../ortools/sat/cp_model.proto --path ../../ortools/sat/sat_parameters.proto",
+    "build:ts": "tsc -p tsconfig.build.json",
+    "build:native": "cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON",
+    "build": "npm run build:proto && npm run build:ts",
+    "prebuild": "node scripts/prebuild.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.3",
+    "node-gyp-build": "^4.8.4"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.47.2",
+    "@bufbuild/protoc-gen-es": "^2.2.3",
+    "@types/node": "^20.17.10",
+    "cmake-js": "^7.3.0",
+    "eslint": "^9.17.0",
+    "node-addon-api": "^8.3.0",
+    "node-api-headers": "^1.4.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,13 @@
+version: v2
+# We don't define modules here — buf.gen.yaml's "inputs" point at the
+# in-tree proto files via an "include" entry that references the
+# repository root. The real module declaration lives in buf.work.yaml.
+deps: []
+lint:
+  use:
+    - STANDARD
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+    - FIELD_NOT_REQUIRED
+    - PACKAGE_VERSION_SUFFIX
+    - FILE_LOWER_SNAKE_CASE
