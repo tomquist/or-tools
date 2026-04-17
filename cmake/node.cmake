@@ -34,36 +34,39 @@ message(STATUS "Node version: ${NODE_VERSION_RAW}")
 # Node.js 20+ ships NAPI 9. We target NAPI 9 as the baseline.
 set(NODE_NAPI_VERSION 9)
 
-# Compute the prebuild triplet.
+# Compute the prebuild triplet. node-gyp-build expects a two-part
+# `<platform>-<arch>` directory name, with libc as an in-file tag.
 if(WIN32)
-  set(NODE_NATIVE_TRIPLET "win32-x64")
+  set(NODE_NATIVE_DIR "win32-x64")
+  set(NODE_OUTPUT_NAME "node.napi.node")
 elseif(APPLE)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)")
-    set(NODE_NATIVE_TRIPLET "darwin-arm64")
+    set(NODE_NATIVE_DIR "darwin-arm64")
   else()
-    set(NODE_NATIVE_TRIPLET "darwin-x64")
+    set(NODE_NATIVE_DIR "darwin-x64")
   endif()
+  set(NODE_OUTPUT_NAME "node.napi.node")
 elseif(UNIX)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)")
     set(_NODE_ARCH "arm64")
   else()
     set(_NODE_ARCH "x64")
   endif()
+  set(NODE_NATIVE_DIR "linux-${_NODE_ARCH}")
   if(EXISTS "/etc/alpine-release")
-    set(NODE_NATIVE_TRIPLET "linux-${_NODE_ARCH}-musl")
+    set(NODE_OUTPUT_NAME "node.napi.musl.node")
     message(WARNING "Node: musl/Alpine detected — prebuilt binaries are not "
                     "shipped for v1; building from source.")
   else()
-    set(NODE_NATIVE_TRIPLET "linux-${_NODE_ARCH}-glibc")
+    set(NODE_OUTPUT_NAME "node.napi.glibc.node")
   endif()
 else()
   message(FATAL_ERROR "Node: unsupported platform")
 endif()
-message(STATUS "Node native triplet: ${NODE_NATIVE_TRIPLET}")
+message(STATUS "Node native dir/file: ${NODE_NATIVE_DIR}/${NODE_OUTPUT_NAME}")
 
 set(NODE_PROJECT_DIR ${PROJECT_SOURCE_DIR}/ortools/node)
-set(NODE_PREBUILDS_DIR ${NODE_PROJECT_DIR}/prebuilds/${NODE_NATIVE_TRIPLET})
-set(NODE_OUTPUT_NAME "node.napi.node")
+set(NODE_PREBUILDS_DIR ${NODE_PROJECT_DIR}/prebuilds/${NODE_NATIVE_DIR})
 
 # Install npm dependencies (devDeps include node-addon-api & node-api-headers).
 message(STATUS "Node: running 'npm install' in ${NODE_PROJECT_DIR}")
@@ -77,7 +80,8 @@ endif()
 
 # Resolve include dirs from the locally-installed packages.
 execute_process(
-  COMMAND ${NODE_EXECUTABLE} -p "require('node-addon-api').include_dir"
+  COMMAND ${NODE_EXECUTABLE} -p
+    "require('path').resolve(require('node-addon-api').include_dir)"
   WORKING_DIRECTORY ${NODE_PROJECT_DIR}
   OUTPUT_VARIABLE NODE_ADDON_API_DIR
   OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -88,7 +92,8 @@ endif()
 message(STATUS "node-addon-api include: ${NODE_ADDON_API_DIR}")
 
 execute_process(
-  COMMAND ${NODE_EXECUTABLE} -p "require('node-api-headers').include_dir"
+  COMMAND ${NODE_EXECUTABLE} -p
+    "require('path').resolve(require('node-api-headers').include_dir)"
   WORKING_DIRECTORY ${NODE_PROJECT_DIR}
   OUTPUT_VARIABLE NODE_API_HEADERS_DIR
   OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -122,13 +127,15 @@ target_compile_definitions(ortools_cpsat_node PRIVATE
   NODE_ADDON_API_DISABLE_DEPRECATED
   BUILDING_NODE_EXTENSION)
 
+# Strip the .node extension off OUTPUT_NAME because the SUFFIX carries it.
+string(REGEX REPLACE "\\.node$" "" _NODE_OUTPUT_STEM "${NODE_OUTPUT_NAME}")
 set_target_properties(ortools_cpsat_node PROPERTIES
   PREFIX ""
   SUFFIX ".node"
   POSITION_INDEPENDENT_CODE ON
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON
-  OUTPUT_NAME "ortools_cpsat_node"
+  OUTPUT_NAME "${_NODE_OUTPUT_STEM}"
   LIBRARY_OUTPUT_DIRECTORY ${NODE_PREBUILDS_DIR}
   RUNTIME_OUTPUT_DIRECTORY ${NODE_PREBUILDS_DIR})
 

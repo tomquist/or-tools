@@ -54,9 +54,7 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
     on_solution_ref_ = Napi::Persistent(on_solution_fn);
     tsfn_ = Napi::ThreadSafeFunction::New(
         env, on_solution_fn, "ortools-solution-cb",
-        /*max_queue_size=*/0, /*initial_thread_count=*/1,
-        /*finalizer_data=*/static_cast<void*>(nullptr),
-        [](Napi::Env, void*, void*) {});
+        /*max_queue_size=*/0, /*initial_thread_count=*/1);
     tsfn_.Unref(env);
   }
 
@@ -246,11 +244,18 @@ class SolveAsyncWorker : public Napi::AsyncWorker {
     Napi::Buffer<uint8_t> buf = Napi::Buffer<uint8_t>::Copy(
         env, reinterpret_cast<const uint8_t*>(response_bytes_.data()),
         response_bytes_.size());
+    // Release TSFNs now that the solve is complete. Doing this here rather
+    // than in ~SolveWrapperJs lets us deterministically drain TSFN queues
+    // before the JS thread proceeds -- matches the Python/Java single-solve
+    // lifecycle and prevents test frameworks (e.g. vitest) from seeing
+    // lingering TSFNs at teardown.
+    if (owner_ != nullptr) owner_->ReleaseCallbackTsfns();
     deferred_.Resolve(buf);
     owner_ref_.Reset();
   }
 
   void OnError(const Napi::Error& err) override {
+    if (owner_ != nullptr) owner_->ReleaseCallbackTsfns();
     deferred_.Reject(err.Value());
     owner_ref_.Reset();
   }
@@ -298,15 +303,18 @@ SolveWrapperJs::SolveWrapperJs(const Napi::CallbackInfo& info)
 
 SolveWrapperJs::~SolveWrapperJs() { Cleanup(); }
 
-void SolveWrapperJs::Cleanup() {
-  if (!alive_.exchange(false)) return;
+void SolveWrapperJs::ReleaseCallbackTsfns() {
   std::lock_guard<std::mutex> lock(mu_);
   for (auto& tsfn : log_tsfns_) tsfn.Release();
   log_tsfns_.clear();
   for (auto& tsfn : best_bound_tsfns_) tsfn.Release();
   best_bound_tsfns_.clear();
-  // Solution bridges: release their TSFNs via destructor.
   solution_bridges_.clear();
+}
+
+void SolveWrapperJs::Cleanup() {
+  if (!alive_.exchange(false)) return;
+  ReleaseCallbackTsfns();
   wrapper_.reset();
 }
 

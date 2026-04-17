@@ -20,15 +20,19 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 function hasNative(): boolean {
-  const triplet =
+  const dir =
     process.platform === 'win32'
       ? 'win32-x64'
       : process.platform === 'darwin'
         ? `darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`
-        : `linux-${process.arch === 'arm64' ? 'arm64' : 'x64'}-glibc`;
-  return existsSync(
-    join(import.meta.dirname, '..', 'prebuilds', triplet, 'node.napi.node'),
-  );
+        : `linux-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
+  const prebuilds = join(import.meta.dirname, '..', 'prebuilds', dir);
+  try {
+    const { readdirSync } = require('node:fs') as typeof import('node:fs');
+    return readdirSync(prebuilds).some((f) => f.endsWith('.node'));
+  } catch {
+    return existsSync(join(prebuilds, 'node.napi.node'));
+  }
 }
 
 const skip = !hasNative();

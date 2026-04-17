@@ -33,17 +33,15 @@ Napi::Object InitCpSatHelper(Napi::Env env, Napi::Object exports);
 // Defined in c_api_binding.cc.
 Napi::Object InitCApi(Napi::Env env, Napi::Object exports);
 
-namespace {
+}  // namespace operations_research::sat::node_binding
 
-Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  InitSolveWrapper(env, exports);
-  InitCpSatHelper(env, exports);
-  InitCApi(env, exports);
+// NODE_API_MODULE stringifies the second argument, so it must be an
+// unqualified identifier. Forward to the namespaced init function here.
+static Napi::Object OrtoolsCpsatInit(Napi::Env env, Napi::Object exports) {
+  operations_research::sat::node_binding::InitSolveWrapper(env, exports);
+  operations_research::sat::node_binding::InitCpSatHelper(env, exports);
+  operations_research::sat::node_binding::InitCApi(env, exports);
   return exports;
 }
 
-}  // namespace
-}  // namespace operations_research::sat::node_binding
-
-NODE_API_MODULE(ortools_cpsat_node,
-                operations_research::sat::node_binding::Init)
+NODE_API_MODULE(ortools_cpsat_node, OrtoolsCpsatInit)

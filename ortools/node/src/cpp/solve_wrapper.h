@@ -38,6 +38,8 @@ class SolveWrapperJs : public Napi::ObjectWrap<SolveWrapperJs> {
 
   sat::SolveWrapper* native() { return wrapper_.get(); }
   bool alive() const { return alive_.load(); }
+  /** Releases the log + best-bound + solution TSFNs owned by this wrapper. */
+  void ReleaseCallbackTsfns();
 
  private:
   // JS-exposed methods.

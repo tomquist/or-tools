@@ -5,6 +5,9 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,
-    pool: 'threads',
+    // The N-API addon spawns C++ solver threads and uses TSFNs that outlive
+    // a single worker run. Using forks instead of worker_threads ensures a
+    // fresh process per test file so TSFN teardown is deterministic.
+    pool: 'forks',
   },
 });
