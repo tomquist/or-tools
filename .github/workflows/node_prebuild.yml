@@ -4,11 +4,16 @@ name: Node prebuild
 
 on:
   push:
-    tags:
-      - "node-v*"
+    paths:
+      - "ortools/sat/node/**"
+      - "cmake/node.cmake"
+      - "ortools/sat/**"
+      - ".github/workflows/node_prebuild.yml"
+    branches:
+      - "**"
   pull_request:
     paths:
-      - "ortools/node/**"
+      - "ortools/sat/node/**"
       - "cmake/node.cmake"
       - "ortools/sat/**"
       - ".github/workflows/node_prebuild.yml"
@@ -21,15 +26,20 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
-            triplet: linux-x64-glibc
+            triplet_dir: linux-x64
+            triplet_file: node.napi.glibc.node
           - os: ubuntu-22.04-arm
-            triplet: linux-arm64-glibc
+            triplet_dir: linux-arm64
+            triplet_file: node.napi.glibc.node
           - os: macos-13
-            triplet: darwin-x64
+            triplet_dir: darwin-x64
+            triplet_file: node.napi.node
           - os: macos-14
-            triplet: darwin-arm64
+            triplet_dir: darwin-arm64
+            triplet_file: node.napi.node
           - os: windows-2022
-            triplet: win32-x64
+            triplet_dir: win32-x64
+            triplet_file: node.napi.node
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -38,14 +48,14 @@ jobs:
           node-version: "20"
       - name: Install Ninja (Unix)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
           if [[ "$RUNNER_OS" == "macOS" ]]; then brew install ninja; fi
           if [[ "$RUNNER_OS" == "Linux" ]]; then sudo apt-get update && sudo apt-get install -y ninja-build; fi
-        shell: bash
       - name: Install Ninja (Windows)
         if: runner.os == 'Windows'
-        run: choco install ninja -y
         shell: pwsh
+        run: choco install ninja -y
 
       - name: Configure CMake
         shell: bash
@@ -57,65 +67,35 @@ jobs:
             -DUSE_SCIP=OFF -DUSE_HIGHS=OFF -DUSE_COINOR=OFF
 
       - name: Build native addon
-        run: cmake --build build --target ortools_cpsat_node --config Release
         shell: bash
+        run: cmake --build build --target ortools_cpsat_node --config Release
 
       - name: Verify single exported symbol (Linux)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
-          nm -D --defined-only ortools/node/prebuilds/${{ matrix.triplet }}/ortools_cpsat_node.node \
-            | awk '$2 == "T" {print $3}' | sort > /tmp/exports
+          set -e
+          out=ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/${{ matrix.triplet_file }}
+          ls -la "$out"
+          nm -D --defined-only "$out" | awk '$2 == "T" {print $3}' | sort > /tmp/exports
           cat /tmp/exports
           echo "napi_register_module_v1" > /tmp/expected
           diff /tmp/expected /tmp/exports
 
-      - name: Package .node as node.napi.node
+      - name: Build TS
+        working-directory: ortools/sat/node
         shell: bash
         run: |
-          cp ortools/node/prebuilds/${{ matrix.triplet }}/ortools_cpsat_node.node \
-             ortools/node/prebuilds/${{ matrix.triplet }}/node.napi.node
-
-      - name: Build TS
-        working-directory: ortools/node
-        run: |
-          npm ci --ignore-scripts
+          npm ci --ignore-scripts --no-audit --no-fund
           npm run build
 
       - name: Run tests
-        working-directory: ortools/node
+        working-directory: ortools/sat/node
+        shell: bash
         run: npm test
 
       - name: Upload prebuild
         uses: actions/upload-artifact@v4
         with:
-          name: prebuild-${{ matrix.triplet }}
-          path: ortools/node/prebuilds/${{ matrix.triplet }}/node.napi.node
-
-  pack:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/node-v')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: prebuild-*
-          path: ortools/node/prebuilds
-          merge-multiple: true
-      - name: Build TS
-        working-directory: ortools/node
-        run: |
-          npm ci --ignore-scripts
-          npm run build
-      - name: Pack
-        working-directory: ortools/node
-        run: npm pack
-      - name: Upload tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-tarball
-          path: ortools/node/*.tgz
+          name: prebuild-${{ matrix.triplet_dir }}
+          path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/${{ matrix.triplet_file }}

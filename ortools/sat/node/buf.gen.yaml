@@ -1,6 +1,6 @@
 version: v2
 inputs:
-  - directory: ../..
+  - directory: ../../..
 plugins:
   - local: ./node_modules/.bin/protoc-gen-es
     out: src/proto

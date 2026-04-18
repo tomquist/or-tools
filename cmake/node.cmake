@@ -65,7 +65,7 @@ else()
 endif()
 message(STATUS "Node native dir/file: ${NODE_NATIVE_DIR}/${NODE_OUTPUT_NAME}")
 
-set(NODE_PROJECT_DIR ${PROJECT_SOURCE_DIR}/ortools/node)
+set(NODE_PROJECT_DIR ${PROJECT_SOURCE_DIR}/ortools/sat/node)
 set(NODE_PREBUILDS_DIR ${NODE_PROJECT_DIR}/prebuilds/${NODE_NATIVE_DIR})
 
 # Install npm dependencies (devDeps include node-addon-api & node-api-headers).

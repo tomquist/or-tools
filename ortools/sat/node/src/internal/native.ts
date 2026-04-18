@@ -60,7 +60,7 @@ function loadNative(): NativeTypes.NativeModule {
       `[@google-ortools/cp-sat] no prebuilt binary for ${triplet}.\n` +
         `Underlying error: ${cause}\n` +
         `Build from source with:\n` +
-        `  cd ortools/node && npx cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON\n` +
+        `  cd ortools/sat/node && npx cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON\n` +
         `or follow CONTRIBUTING.md.`,
     );
   }

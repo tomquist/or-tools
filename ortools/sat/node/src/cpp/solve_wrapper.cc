@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "ortools/node/src/cpp/solve_wrapper.h"
+#include "ortools/sat/node/src/cpp/solve_wrapper.h"
 
 #include <atomic>
 #include <cstdint>
