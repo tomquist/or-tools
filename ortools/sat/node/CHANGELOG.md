@@ -26,7 +26,13 @@ Initial release. Tracks upstream OR-Tools 9.15.
     `AsyncLocalStorage`-style active context.
   - `AbortSignal` support (resolves with partial response, never
     rejects).
-- Prebuilt binaries for linux-x64-glibc, linux-arm64-glibc, darwin-x64,
-  darwin-arm64, and win32-x64.
+- Prebuilt binaries for linux-x64 (glibc), linux-arm64 (glibc),
+  darwin-x64, darwin-arm64, and win32-x64. The prebuild filename layout
+  matches `node-gyp-build`'s parser:
+  `prebuilds/<platform>-<arch>/node.napi[.<libc>].node`.
 - Symbol isolation: only `napi_register_module_v1` is externally visible
   (Linux version script + Windows `.def`).
+- Tag-driven release workflow at `.github/workflows/node_release.yml`.
+  Push a `cp-sat-vX.Y.Z` tag to build all prebuilds, attach the npm
+  tarball to a GitHub release, and (after manual approval) `npm publish`
+  with provenance.

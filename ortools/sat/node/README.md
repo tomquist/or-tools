@@ -22,8 +22,8 @@ npm install @google-ortools/cp-sat
 ```
 
 Requires Node.js 20+ (NAPI 9). Prebuilt binaries are shipped for
-`linux-x64-glibc`, `linux-arm64-glibc`, `darwin-x64`, `darwin-arm64`, and
-`win32-x64`. Alpine (musl) must build from source — see
+`linux-x64` (glibc), `linux-arm64` (glibc), `darwin-x64`, `darwin-arm64`,
+and `win32-x64`. Alpine (musl) must build from source — see
 [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## Quick start

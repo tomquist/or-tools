@@ -1,0 +1,245 @@
+# Copyright 2010-2025 Google LLC
+# Tag-driven release for @google-ortools/cp-sat.
+#
+# Trigger: pushing a tag that matches `cp-sat-v*`. The workflow:
+#   1. Builds the prebuild matrix (linux x64/arm64, macOS x64/arm64, win x64).
+#   2. Aggregates the prebuilt .node binaries into ortools/sat/node/prebuilds/.
+#   3. Runs `npm pack` to produce the npm tarball.
+#   4. Uploads the tarball as a build artifact and as a GitHub release asset.
+#   5. Publishes to npm with provenance, gated behind the `npm-publish`
+#      environment so a maintainer must approve the publish step before the
+#      package is pushed live.
+#
+# To cut a release:
+#   1. Bump the version in ortools/sat/node/package.json.
+#   2. Update ortools/sat/node/CHANGELOG.md.
+#   3. Commit, tag with `cp-sat-vX.Y.Z[-suffix]`, push the tag.
+#   4. Approve the publish step in the GitHub Actions UI.
+
+name: Node release
+
+on:
+  push:
+    tags:
+      - "cp-sat-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version (e.g. 9.15.0-node.1). Leave blank to use package.json."
+        required: false
+
+jobs:
+  build:
+    name: Prebuild ${{ matrix.triplet_dir }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            triplet_dir: linux-x64
+            triplet_file: node.napi.glibc.node
+          - os: ubuntu-22.04-arm
+            triplet_dir: linux-arm64
+            triplet_file: node.napi.glibc.node
+          - os: macos-13
+            triplet_dir: darwin-x64
+            triplet_file: node.napi.node
+          - os: macos-14
+            triplet_dir: darwin-arm64
+            triplet_file: node.napi.node
+          - os: windows-2022
+            triplet_dir: win32-x64
+            triplet_file: node.napi.node
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Ninja (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then brew install ninja; fi
+          if [[ "$RUNNER_OS" == "Linux" ]]; then sudo apt-get update && sudo apt-get install -y ninja-build; fi
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ninja -y
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CXX=ON -DBUILD_DEPS=ON -DBUILD_NODE=ON \
+            -DBUILD_SAMPLES=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+            -DUSE_SCIP=OFF -DUSE_HIGHS=OFF -DUSE_COINOR=OFF
+
+      - name: Build native addon
+        shell: bash
+        run: cmake --build build --target ortools_cpsat_node --config Release
+
+      - name: Verify single exported symbol (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -e
+          out=ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/${{ matrix.triplet_file }}
+          ls -la "$out"
+          nm -D --defined-only "$out" | awk '$2 == "T" {print $3}' | sort > /tmp/exports
+          cat /tmp/exports
+          echo "napi_register_module_v1" > /tmp/expected
+          diff /tmp/expected /tmp/exports
+
+      - name: Build TS
+        working-directory: ortools/sat/node
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+
+      - name: Run tests
+        working-directory: ortools/sat/node
+        shell: bash
+        run: npm test
+
+      - name: Upload prebuild artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-${{ matrix.triplet_dir }}
+          path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/${{ matrix.triplet_file }}
+
+  pack:
+    name: Pack tarball
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      version: ${{ steps.pack.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download all prebuilds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: prebuild-*
+          path: ortools/sat/node/_prebuilds_flat
+
+      # Each prebuild artifact unpacks as `_prebuilds_flat/prebuild-<dir>/<file>`.
+      # Move each `<file>` into `prebuilds/<dir>/<file>` to match the layout
+      # node-gyp-build expects at runtime.
+      - name: Reassemble prebuilds/
+        shell: bash
+        run: |
+          set -e
+          cd ortools/sat/node
+          for d in _prebuilds_flat/prebuild-*; do
+            triplet="${d#_prebuilds_flat/prebuild-}"
+            mkdir -p "prebuilds/$triplet"
+            mv "$d"/* "prebuilds/$triplet/"
+          done
+          rm -rf _prebuilds_flat
+          ls -laR prebuilds/
+
+      - name: Override version (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        working-directory: ortools/sat/node
+        shell: bash
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Build TS
+        working-directory: ortools/sat/node
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+
+      - name: Pack
+        id: pack
+        working-directory: ortools/sat/node
+        shell: bash
+        run: |
+          set -e
+          tarball=$(npm pack 2>/dev/null | tail -n1)
+          echo "tarball=ortools/sat/node/$tarball" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: ${{ steps.pack.outputs.tarball }}
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/cp-sat-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pack.outputs.tarball }}
+          generate_release_notes: true
+
+  publish:
+    name: Publish to npm
+    needs: pack
+    runs-on: ubuntu-latest
+    # The `npm-publish` environment must be configured in the repo settings
+    # with required reviewers + the NPM_TOKEN secret. This gates the publish
+    # step behind a manual approval click.
+    environment:
+      name: npm-publish
+      url: https://www.npmjs.com/package/@google-ortools/cp-sat
+    permissions:
+      contents: read
+      id-token: write   # for npm provenance
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+          path: .
+
+      - name: Verify tarball loads
+        shell: bash
+        run: |
+          set -e
+          mkdir -p /tmp/install-test
+          cd /tmp/install-test
+          npm init -y >/dev/null
+          npm pkg set type=module
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/*.tgz
+          cat > smoke.mjs <<'EOF'
+          import { CpModel, CpSolver, CpSolverStatus } from '@google-ortools/cp-sat';
+          const m = new CpModel();
+          const x = m.newIntVar(0n, 10n, 'x');
+          const y = m.newIntVar(0n, 10n, 'y');
+          m.addEquality(x.add(y), 7);
+          m.maximize(x);
+          const s = new CpSolver();
+          const status = await s.solve(m);
+          if (status !== CpSolverStatus.OPTIMAL) {
+            console.error('expected OPTIMAL, got', status);
+            process.exit(1);
+          }
+          if (s.value(x) + s.value(y) !== 7n) {
+            console.error('expected x+y=7, got', s.value(x), s.value(y));
+            process.exit(1);
+          }
+          console.log('smoke OK: x =', s.value(x).toString(), 'y =', s.value(y).toString());
+          EOF
+          node smoke.mjs
+
+      - name: npm publish
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -e
+          npm publish "$GITHUB_WORKSPACE"/*.tgz --provenance --access public
