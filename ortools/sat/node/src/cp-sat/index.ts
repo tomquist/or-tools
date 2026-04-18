@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Public surface for @google-ortools/cp-sat.
+// Public surface for @ortools-node/cp-sat.
 
 export {
   BoolVar,

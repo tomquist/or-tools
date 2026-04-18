@@ -1,5 +1,5 @@
 {
-  "name": "@google-ortools/cp-sat",
+  "name": "@ortools-node/cp-sat",
   "version": "9.15.0-node.0",
   "description": "Google OR-Tools CP-SAT solver bindings for Node.js / TypeScript.",
   "license": "Apache-2.0",

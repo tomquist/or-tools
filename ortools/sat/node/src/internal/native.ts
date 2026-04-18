@@ -57,7 +57,7 @@ function loadNative(): NativeTypes.NativeModule {
             : `${platform}-${arch}`;
     const cause = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `[@google-ortools/cp-sat] no prebuilt binary for ${triplet}.\n` +
+      `[@ortools-node/cp-sat] no prebuilt binary for ${triplet}.\n` +
         `Underlying error: ${cause}\n` +
         `Build from source with:\n` +
         `  cd ortools/sat/node && npx cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON\n` +

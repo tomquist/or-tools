@@ -1,5 +1,5 @@
 # Copyright 2010-2025 Google LLC
-# Prebuilds and tests for @google-ortools/cp-sat.
+# Prebuilds and tests for @ortools-node/cp-sat.
 name: Node prebuild
 
 on:

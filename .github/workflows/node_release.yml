@@ -1,5 +1,5 @@
 # Copyright 2010-2025 Google LLC
-# Tag-driven release for @google-ortools/cp-sat.
+# Tag-driven release for @ortools-node/cp-sat.
 #
 # Trigger: pushing a tag that matches `cp-sat-v*`. The workflow:
 #   1. Builds the prebuild matrix (linux x64/arm64, macOS x64/arm64, win x64).
@@ -192,7 +192,7 @@ jobs:
     # step behind a manual approval click.
     environment:
       name: npm-publish
-      url: https://www.npmjs.com/package/@google-ortools/cp-sat
+      url: https://www.npmjs.com/package/@ortools-node/cp-sat
     permissions:
       contents: read
       id-token: write   # for npm provenance
@@ -216,7 +216,7 @@ jobs:
           npm pkg set type=module
           npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/*.tgz
           cat > smoke.mjs <<'EOF'
-          import { CpModel, CpSolver, CpSolverStatus } from '@google-ortools/cp-sat';
+          import { CpModel, CpSolver, CpSolverStatus } from '@ortools-node/cp-sat';
           const m = new CpModel();
           const x = m.newIntVar(0n, 10n, 'x');
           const y = m.newIntVar(0n, 10n, 'y');

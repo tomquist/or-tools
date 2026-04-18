@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Top-level Node-API entry point for @google-ortools/cp-sat.
+// Top-level Node-API entry point for @ortools-node/cp-sat.
 //
 // We pin to NAPI version 9 (Node 18.17+ / 20+). The addon ships a single
 // exported symbol -- napi_register_module_v1 -- enforced on Linux via the
@@ -21,7 +21,7 @@
 #include <napi.h>
 
 #if NAPI_VERSION < 9
-#error "@google-ortools/cp-sat requires NAPI 9 (Node 18.17+ / 20+)"
+#error "@ortools-node/cp-sat requires NAPI 9 (Node 18.17+ / 20+)"
 #endif
 
 namespace operations_research::sat::node_binding {

@@ -1,4 +1,4 @@
-# @google-ortools/cp-sat
+# @ortools-node/cp-sat
 
 Google [OR-Tools](https://developers.google.com/optimization) CP-SAT solver
 bindings for Node.js and TypeScript. Built on the same C++ solver used by
@@ -18,7 +18,7 @@ conventions (fluent algebra, explicit ESM, `bigint` for int64 values).
 ## Install
 
 ```
-npm install @google-ortools/cp-sat
+npm install @ortools-node/cp-sat
 ```
 
 Requires Node.js 20+ (NAPI 9). Prebuilt binaries are shipped for
@@ -29,7 +29,7 @@ and `win32-x64`. Alpine (musl) must build from source — see
 ## Quick start
 
 ```ts
-import { CpModel, CpSolver, CpSolverStatus } from '@google-ortools/cp-sat';
+import { CpModel, CpSolver, CpSolverStatus } from '@ortools-node/cp-sat';
 
 const model = new CpModel();
 const x = model.newIntVar(0n, 10n, 'x');
@@ -89,7 +89,7 @@ import {
   CpSolver,
   CpSolverSolutionCallback,
   type SolutionContext,
-} from '@google-ortools/cp-sat';
+} from '@ortools-node/cp-sat';
 
 class Printer extends CpSolverSolutionCallback {
   onSolutionCallback(ctx: SolutionContext): void {

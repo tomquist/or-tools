@@ -1,4 +1,4 @@
-# Contributing to @google-ortools/cp-sat
+# Contributing to @ortools-node/cp-sat
 
 The Node.js binding lives under
 [`ortools/sat/node`](.) inside the OR-Tools fork. The directory layout

@@ -191,7 +191,7 @@ add_custom_target(node_package
   DEPENDS ortools_cpsat_node node_ts
   COMMAND ${CMAKE_COMMAND} -E echo
     "Node package built at ${NODE_PROJECT_DIR}"
-  COMMENT "Assembling @google-ortools/cp-sat package")
+  COMMENT "Assembling @ortools-node/cp-sat package")
 
 add_custom_target(node_test
   DEPENDS ortools_cpsat_node

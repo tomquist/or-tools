@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to @google-ortools/cp-sat are documented in this file.
+All notable changes to @ortools-node/cp-sat are documented in this file.
 
 ## 9.15.0-node.0
 
