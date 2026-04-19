@@ -300,12 +300,23 @@ add_custom_command(TARGET ortools_cpsat_node POST_BUILD
 
 if(WIN32)
   target_link_libraries(ortools_cpsat_node PRIVATE delayimp)
+  # Generate node.lib (import library) from node-api-headers' def file
+  # so the linker resolves __imp_napi_* externals against node.exe.
   if(EXISTS "${NODE_API_HEADERS_DIR}/def/node_api.def")
-    target_link_libraries(ortools_cpsat_node PRIVATE
-      "${NODE_API_HEADERS_DIR}/def/node_api.def")
+    set(_NODE_API_DEF "${NODE_API_HEADERS_DIR}/def/node_api.def")
+    set(_NODE_API_LIB "${CMAKE_CURRENT_BINARY_DIR}/node_api.lib")
+    add_custom_command(
+      OUTPUT "${_NODE_API_LIB}"
+      COMMAND lib.exe /def:"${_NODE_API_DEF}" /out:"${_NODE_API_LIB}"
+              /machine:x64
+      DEPENDS "${_NODE_API_DEF}"
+      VERBATIM)
+    add_custom_target(node_api_import_lib DEPENDS "${_NODE_API_LIB}")
+    add_dependencies(ortools_cpsat_node node_api_import_lib)
+    target_link_libraries(ortools_cpsat_node PRIVATE "${_NODE_API_LIB}")
   endif()
   set_property(TARGET ortools_cpsat_node APPEND_STRING PROPERTY
-    LINK_FLAGS " /DELAYLOAD:NODE.EXE")
+    LINK_FLAGS " /DELAYLOAD:node.exe")
 elseif(APPLE)
   set_property(TARGET ortools_cpsat_node APPEND_STRING PROPERTY
     LINK_FLAGS " -undefined dynamic_lookup -Wl,-dead_strip")
