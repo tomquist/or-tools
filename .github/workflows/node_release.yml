@@ -74,7 +74,7 @@ jobs:
         with:
           arch: x64
 
-      - name: Configure CMake (Windows — static deps to avoid DLL/PATH protoc issues)
+      - name: Configure CMake (Windows — static deps + static CRT)
         if: runner.os == 'Windows'
         shell: bash
         run: |
@@ -84,6 +84,7 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF \
             -Dprotobuf_BUILD_SHARED_LIBS=OFF \
             -DABSL_BUILD_DLL=OFF \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
             -DBUILD_SAMPLES=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
             -DUSE_SCIP=OFF -DUSE_HIGHS=OFF -DUSE_COINOR=OFF
       - name: Configure CMake (Unix)
