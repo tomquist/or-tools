@@ -204,24 +204,32 @@ file(GET_RUNTIME_DEPENDENCIES
   EXECUTABLES \"\${ADDON_PATH}\"
   DIRECTORIES \"\${LIB_DIR}\"
   PRE_INCLUDE_REGEXES
-    \"^libortools\"
-    \"^libprotobuf\"
-    \"^libabsl_\"
-    \"^libutf8_\"
-    \"^libre2\"
-    \"^libCbc\" \"^libCgl\" \"^libClp\" \"^libCoinUtils\" \"^libOsi\"
-    \"^libhighs\" \"^libscip\" \"^libsoplex\"
-    \"^libortools\\\\.dylib\" \"^libprotobuf\\\\.dylib\" \"^libabsl_.*\\\\.dylib\"
+    # Matches against the basename or @rpath-prefixed install name, so we
+    # use no leading anchor.
+    \"libortools\"
+    \"libprotobuf\"
+    \"libabsl_\"
+    \"libutf8_\"
+    \"libre2\"
+    \"libCbc\" \"libCgl\" \"libClp\" \"libCoinUtils\" \"libOsi\"
+    \"libhighs\" \"libscip\" \"libsoplex\"
     \"ortools\\\\.dll\" \"protobuf\\\\.dll\" \"abseil_dll\\\\.dll\"
+  POST_INCLUDE_REGEXES
+    # On macOS, GET_RUNTIME_DEPENDENCIES does not resolve @rpath/ install
+    # names against the link rpaths of the upstream library, so we
+    # whitelist anything from the build lib dir explicitly.
+    \"\${LIB_DIR}/.*\"
   PRE_EXCLUDE_REGEXES
     \"^/lib\" \"^/usr/lib\" \"^/usr/local/lib\"
     \"^C:/Windows\"
     \"^/System/Library\" \"^/usr/lib/system\"
-    \"^libc\" \"^libm\" \"^libstdc\\\\+\\\\+\" \"^libgcc\" \"^libdl\"
-    \"^libpthread\" \"^librt\" \"^libz\" \"^libbz2\"
-    \"^ld-linux\" \"^ld-musl\"
-    \"^api-ms-win\" \"^ext-ms-win\" \"^kernel32\" \"^vcruntime\"
-    \"^msvcp\" \"^ucrtbase\" \"^Concrt\")
+    \"libc\\\\.so\" \"libm\\\\.so\" \"libstdc\\\\+\\\\+\\\\.so\"
+    \"libgcc_s\\\\.so\" \"libdl\\\\.so\"
+    \"libpthread\\\\.so\" \"librt\\\\.so\" \"libz\\\\.so\" \"libbz2\\\\.so\"
+    \"ld-linux\" \"ld-musl\"
+    \"libSystem\\\\.B\\\\.dylib\" \"libc\\\\+\\\\+\\\\.\" \"libobjc\\\\.\"
+    \"api-ms-win\" \"ext-ms-win\" \"kernel32\" \"vcruntime\"
+    \"msvcp\" \"ucrtbase\" \"Concrt\")
 foreach(_dep IN LISTS _resolved)
   get_filename_component(_dep_real \${_dep} REALPATH)
   get_filename_component(_dep_soname \${_dep} NAME)
