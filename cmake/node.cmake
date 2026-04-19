@@ -117,6 +117,12 @@ execute_process(
 if(NOT _resolve_nah EQUAL 0)
   message(FATAL_ERROR "Node: failed to resolve 'node-api-headers' include dir")
 endif()
+
+# `node-api-headers` ships its .def files under `<root>/def/`, parallel to
+# the `<root>/include/` we just resolved. Compute the parent for the
+# Windows import-lib generation step below.
+get_filename_component(NODE_API_HEADERS_ROOT "${NODE_API_HEADERS_DIR}" DIRECTORY)
+message(STATUS "node-api-headers root: ${NODE_API_HEADERS_ROOT}")
 message(STATUS "node-api-headers include: ${NODE_API_HEADERS_DIR}")
 
 # The N-API addon: a MODULE library with a .node suffix.
