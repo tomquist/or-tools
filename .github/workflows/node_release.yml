@@ -68,6 +68,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: choco install ninja -y
+      - name: Setup MSVC dev shell (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Configure CMake (Windows — static deps to avoid DLL/PATH protoc issues)
         if: runner.os == 'Windows'
