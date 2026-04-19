@@ -62,6 +62,32 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(BUILD_TESTING OFF)
 set(CMAKE_Fortran_COMPILER OFF)
+# CMake before 3.15 ignored CMAKE_MSVC_RUNTIME_LIBRARY in FetchContent
+# subbuilds; even on 3.24+, projects that don't enable the policy
+# (cmake_policy(SET CMP0091 NEW)) fall back to the legacy
+# CMAKE_<LANG>_FLAGS_<CFG>=/MD route. Pin the flags directly so absl /
+# protobuf / re2 honor whatever runtime the parent picked.
+if(MSVC AND DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+  if(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreaded")
+    set(_msvc_crt "/MT")
+  elseif(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreadedDebug")
+    set(_msvc_crt "/MTd")
+  elseif(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreadedDLL")
+    set(_msvc_crt "/MD")
+  elseif(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreadedDebugDLL")
+    set(_msvc_crt "/MDd")
+  endif()
+  if(DEFINED _msvc_crt)
+    foreach(_cfg "" "_DEBUG" "_RELEASE" "_RELWITHDEBINFO" "_MINSIZEREL")
+      foreach(_lang CXX C)
+        string(REGEX REPLACE "/M[DT]d?" "" _existing
+               "${CMAKE_${_lang}_FLAGS${_cfg}}")
+        set(CMAKE_${_lang}_FLAGS${_cfg} "${_existing} ${_msvc_crt}")
+      endforeach()
+    endforeach()
+    message(STATUS "Forcing MSVC runtime ${_msvc_crt} for FetchContent deps")
+  endif()
+endif()
 
 # ##############################################################################
 # ZLIB
