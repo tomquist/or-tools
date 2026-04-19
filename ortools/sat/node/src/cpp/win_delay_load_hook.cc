@@ -17,9 +17,11 @@
 
 #ifdef _WIN32
 
+// <windows.h> must precede <delayimp.h> so that BOOL/WINAPI/HMODULE are
+// declared by the time delayimp.h's prototypes reference them.
+#include <windows.h>
 #include <delayimp.h>
 #include <string.h>
-#include <windows.h>
 
 static FARPROC WINAPI load_exe_hook(unsigned int event, DelayLoadInfo* info) {
   if (event != dliNotePreLoadLibrary) {
