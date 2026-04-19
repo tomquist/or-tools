@@ -41,7 +41,7 @@
     "build:proto": "buf generate --path ../../../ortools/sat/cp_model.proto --path ../../../ortools/sat/sat_parameters.proto",
     "build:ts": "tsc -p tsconfig.build.json",
     "build:native": "cmake-js compile --CDBUILD_CXX=ON --CDBUILD_DEPS=ON --CDBUILD_NODE=ON",
-    "build": "npm run build:proto && npm run build:ts",
+    "build": "npm run build:ts",
     "prebuild:native": "node scripts/prebuild.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
