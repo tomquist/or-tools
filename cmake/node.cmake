@@ -252,8 +252,11 @@ set(_INCLUDE_PATTERNS
   \"^libre2\"
   \"^libCbc\" \"^libCgl\" \"^libClp\" \"^libCoinUtils\" \"^libOsi\"
   \"^libhighs\" \"^libscip\" \"^libsoplex\"
-  # macOS uses lib<name>.<version>.dylib (no 'lib' prefix? no, with it).
-  # Windows uses <name>.dll.
+  # OR-Tools' build can produce a bundled libbz2 (on macOS especially);
+  # ship it. On Linux we usually link against the system /lib/libbz2,
+  # which the LIB_DIR glob won't pick up anyway.
+  \"^libbz2\" \"^libz\"
+  # Windows DLLs.
   \"^ortools\\\\.dll\" \"^libortools\\\\.dll\"
   \"^libprotobuf\\\\.dll\" \"^libprotoc\\\\.dll\"
   \"^abseil_dll\\\\.dll\" \"^libabsl_\")

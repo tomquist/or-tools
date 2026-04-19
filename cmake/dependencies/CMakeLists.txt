@@ -53,7 +53,12 @@ endif()
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
-set(BUILD_SHARED_LIBS ON)
+# Default to shared libs unless the parent project explicitly asked for
+# static (e.g. the Node addon on Windows where shared protobuf breaks
+# protoc's DLL search at code-gen time).
+if(NOT DEFINED CACHE{BUILD_SHARED_LIBS} AND NOT DEFINED BUILD_SHARED_LIBS)
+  set(BUILD_SHARED_LIBS ON)
+endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(BUILD_TESTING OFF)
 set(CMAKE_Fortran_COMPILER OFF)
@@ -159,7 +164,11 @@ if(BUILD_Protobuf)
     SYSTEM
   )
   set(protobuf_BUILD_TESTS OFF)
-  set(protobuf_BUILD_SHARED_LIBS ON)
+  # Inherit BUILD_SHARED_LIBS rather than hard-coding ON so consumers
+  # (notably the Node addon on Windows) can build a static protoc.
+  if(NOT DEFINED protobuf_BUILD_SHARED_LIBS)
+    set(protobuf_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+  endif()
   set(protobuf_BUILD_EXPORT OFF)
   set(protobuf_MSVC_STATIC_RUNTIME OFF)
   #set(protobuf_BUILD_LIBUPB ON)
