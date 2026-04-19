@@ -305,6 +305,11 @@ add_custom_command(TARGET ortools_cpsat_node POST_BUILD
   VERBATIM)
 
 if(WIN32)
+  # Statically link the C++ runtime so the .node doesn't need
+  # MSVCP140.dll / VCRUNTIME140.dll on PATH at load time. This is the
+  # standard approach for npm-distributed native modules on Windows.
+  set_target_properties(ortools_cpsat_node PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   target_link_libraries(ortools_cpsat_node PRIVATE delayimp)
   # Generate node.lib (import library) from node-api-headers' def file
   # so the linker resolves __imp_napi_* / __imp_node_api_* externals

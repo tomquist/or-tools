@@ -100,6 +100,14 @@ jobs:
           cat /tmp/exports
           echo "napi_register_module_v1" > /tmp/expected
           diff /tmp/expected /tmp/exports
+      - name: Inspect .node deps (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $out = "ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/${{ matrix.triplet_file }}"
+          Get-Item $out | Format-List FullName, Length
+          dumpbin /dependents $out
+          dumpbin /exports $out
 
       - name: Build TS
         working-directory: ortools/sat/node
