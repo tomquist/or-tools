@@ -19,15 +19,9 @@ if(NOT TARGET ${PROJECT_NAMESPACE}::ortools)
   message(FATAL_ERROR "Node: missing ${PROJECT_NAMESPACE}::ortools TARGET")
 endif()
 
-# Locate Node.js + npm. On Windows, `npm` is a `.cmd` launcher and
-# execute_process won't invoke a bare `npm` correctly; search for `npm.cmd`
-# first so find_program returns the launcher path.
+# Locate Node.js + npm.
 find_program(NODE_EXECUTABLE NAMES node REQUIRED)
-if(WIN32)
-  find_program(NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
-else()
-  find_program(NPM_EXECUTABLE NAMES npm REQUIRED)
-endif()
+find_program(NPM_EXECUTABLE NAMES npm REQUIRED)
 message(STATUS "Found Node: ${NODE_EXECUTABLE}")
 message(STATUS "Found npm: ${NPM_EXECUTABLE}")
 
@@ -42,10 +36,8 @@ set(NODE_NAPI_VERSION 9)
 
 # Compute the prebuild triplet. node-gyp-build expects a two-part
 # `<platform>-<arch>` directory name, with libc as an in-file tag.
-if(WIN32)
-  set(NODE_NATIVE_DIR "win32-x64")
-  set(NODE_OUTPUT_NAME "node.napi.node")
-elseif(APPLE)
+# Windows is not currently supported; see ortools/sat/node/CONTRIBUTING.md.
+if(APPLE)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)")
     set(NODE_NATIVE_DIR "darwin-arm64")
   else()
@@ -67,7 +59,9 @@ elseif(UNIX)
     set(NODE_OUTPUT_NAME "node.napi.glibc.node")
   endif()
 else()
-  message(FATAL_ERROR "Node: unsupported platform")
+  message(FATAL_ERROR
+    "Node: unsupported platform (Windows is not currently supported; "
+    "see ortools/sat/node/CONTRIBUTING.md)")
 endif()
 message(STATUS "Node native dir/file: ${NODE_NATIVE_DIR}/${NODE_OUTPUT_NAME}")
 
@@ -117,12 +111,6 @@ execute_process(
 if(NOT _resolve_nah EQUAL 0)
   message(FATAL_ERROR "Node: failed to resolve 'node-api-headers' include dir")
 endif()
-
-# `node-api-headers` ships its .def files under `<root>/def/`, parallel to
-# the `<root>/include/` we just resolved. Compute the parent for the
-# Windows import-lib generation step below.
-get_filename_component(NODE_API_HEADERS_ROOT "${NODE_API_HEADERS_DIR}" DIRECTORY)
-message(STATUS "node-api-headers root: ${NODE_API_HEADERS_ROOT}")
 message(STATUS "node-api-headers include: ${NODE_API_HEADERS_DIR}")
 
 # The N-API addon: a MODULE library with a .node suffix.
@@ -132,10 +120,6 @@ set(NODE_ADDON_SOURCES
   ${NODE_PROJECT_DIR}/src/cpp/cp_sat_helper.cc
   ${NODE_PROJECT_DIR}/src/cpp/c_api_binding.cc
 )
-
-if(WIN32)
-  list(APPEND NODE_ADDON_SOURCES ${NODE_PROJECT_DIR}/src/cpp/win_delay_load_hook.cc)
-endif()
 
 add_library(ortools_cpsat_node MODULE ${NODE_ADDON_SOURCES})
 
@@ -216,9 +200,7 @@ file(WRITE ${_NODE_BUNDLE_SCRIPT} "
 # possibly need.
 
 # Pick up libortools and friends in their library extension.
-if(WIN32)
-  set(_lib_glob \"*.dll\")
-elseif(APPLE)
+if(APPLE)
   set(_lib_glob \"*.dylib\")
 else()
   set(_lib_glob \"*.so*\")
@@ -235,14 +217,12 @@ file(GLOB _candidates RELATIVE \"\${LIB_DIR}\" \"\${LIB_DIR}/\${_lib_glob}\")
 # unversioned and the fully-versioned aliases.
 set(_filtered)
 foreach(_cand IN LISTS _candidates)
-  # Linux: keep libfoo.so.<digit>(.<digit>...) as the SONAME the loader
-  # actually requests. Keep .dylib / .dll names unchanged on macOS / Windows.
-  if(WIN32 OR APPLE)
+  if(APPLE)
     list(APPEND _filtered \"\${_cand}\")
   else()
-    # Match SONAME-style libfoo.so.X (where X may contain dots, e.g.
-    # libabsl_base.so.2508.0.0). Skip the unversioned libfoo.so symlink
-    # which is the dev-only alias.
+    # Linux: match SONAME-style libfoo.so.X (where X may contain dots,
+    # e.g. libabsl_base.so.2508.0.0). Skip the unversioned libfoo.so
+    # symlink which is the dev-only alias.
     if(_cand MATCHES \"\\\\.so\\\\.[0-9].*\")
       list(APPEND _filtered \"\${_cand}\")
     endif()
@@ -261,11 +241,7 @@ set(_INCLUDE_PATTERNS
   # OR-Tools' build can produce a bundled libbz2 (on macOS especially);
   # ship it. On Linux we usually link against the system /lib/libbz2,
   # which the LIB_DIR glob won't pick up anyway.
-  \"^libbz2\" \"^libz\"
-  # Windows DLLs.
-  \"^ortools\\\\.dll\" \"^libortools\\\\.dll\"
-  \"^libprotobuf\\\\.dll\" \"^libprotoc\\\\.dll\"
-  \"^abseil_dll\\\\.dll\" \"^libabsl_\")
+  \"^libbz2\" \"^libz\")
 
 foreach(_cand IN LISTS _candidates)
   set(_match FALSE)
@@ -304,46 +280,7 @@ add_custom_command(TARGET ortools_cpsat_node POST_BUILD
   COMMENT "Bundling runtime dependencies for ortools_cpsat_node"
   VERBATIM)
 
-if(WIN32)
-  # Statically link the C++ runtime so the .node doesn't need
-  # MSVCP140.dll / VCRUNTIME140.dll on PATH at load time. This is the
-  # standard approach for npm-distributed native modules on Windows.
-  set_target_properties(ortools_cpsat_node PROPERTIES
-    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-  target_link_libraries(ortools_cpsat_node PRIVATE delayimp)
-  # Generate node.lib (import library) from node-api-headers' def file
-  # so the linker resolves __imp_napi_* / __imp_node_api_* externals
-  # against node.exe at link time. The implicit DELAYLOAD below makes
-  # resolution actually happen lazily at runtime against whatever host
-  # process loaded the .node (node.exe / electron.exe / bun.exe).
-  set(_NODE_API_DEF "${NODE_API_HEADERS_ROOT}/def/node_api.def")
-  if(NOT EXISTS "${_NODE_API_DEF}")
-    message(FATAL_ERROR "node-api-headers: expected def file at ${_NODE_API_DEF}")
-  endif()
-  set(_NODE_API_LIB "${CMAKE_CURRENT_BINARY_DIR}/node_api.lib")
-
-  # Build the import library at configure time -- it's a tiny operation
-  # (lib.exe parses a .def, emits a few hundred byte .lib) and avoids
-  # the awkward dance of injecting a generated .lib into a target's
-  # link line via add_custom_command, which CMake handles inconsistently.
-  if(NOT EXISTS "${_NODE_API_LIB}")
-    execute_process(
-      COMMAND lib.exe /def:${_NODE_API_DEF} /out:${_NODE_API_LIB} /machine:x64
-      RESULT_VARIABLE _lib_result
-      OUTPUT_VARIABLE _lib_stdout
-      ERROR_VARIABLE _lib_stderr)
-    if(NOT _lib_result EQUAL 0)
-      message(FATAL_ERROR
-        "node-api-headers: lib.exe failed (exit ${_lib_result})\n"
-        "stdout:\n${_lib_stdout}\n"
-        "stderr:\n${_lib_stderr}")
-    endif()
-    message(STATUS "node-api-headers: generated ${_NODE_API_LIB}")
-  endif()
-  target_link_libraries(ortools_cpsat_node PRIVATE "${_NODE_API_LIB}")
-  set_property(TARGET ortools_cpsat_node APPEND_STRING PROPERTY
-    LINK_FLAGS " /DELAYLOAD:node.exe")
-elseif(APPLE)
+if(APPLE)
   set_property(TARGET ortools_cpsat_node APPEND_STRING PROPERTY
     LINK_FLAGS " -undefined dynamic_lookup -Wl,-dead_strip")
   add_custom_command(TARGET ortools_cpsat_node POST_BUILD

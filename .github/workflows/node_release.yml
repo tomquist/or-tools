@@ -2,7 +2,8 @@
 # Tag-driven release for @ortools-node/cp-sat.
 #
 # Trigger: pushing a tag that matches `cp-sat-v*`. The workflow:
-#   1. Builds the prebuild matrix (linux x64/arm64, macOS x64/arm64, win x64).
+#   1. Builds the prebuild matrix (linux x64/arm64, macOS x64/arm64).
+#      Windows is intentionally not in the matrix; see CONTRIBUTING.md.
 #   2. Aggregates the prebuilt .node binaries into ortools/sat/node/prebuilds/.
 #   3. Runs `npm pack` to produce the npm tarball.
 #   4. Uploads the tarball as a build artifact and as a GitHub release asset.
@@ -48,9 +49,6 @@ jobs:
           - os: macos-14
             triplet_dir: darwin-arm64
             triplet_file: node.napi.node
-          - os: windows-2022
-            triplet_dir: win32-x64
-            triplet_file: node.napi.node
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -58,37 +56,13 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install Ninja (Unix)
-        if: runner.os != 'Windows'
+      - name: Install Ninja
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "macOS" ]]; then brew install ninja; fi
           if [[ "$RUNNER_OS" == "Linux" ]]; then sudo apt-get update && sudo apt-get install -y ninja-build; fi
-      - name: Install Ninja (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: choco install ninja -y
-      - name: Setup MSVC dev shell (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
 
-      - name: Configure CMake (Windows — static deps + static CRT)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_CXX=ON -DBUILD_DEPS=ON -DBUILD_NODE=ON \
-            -DBUILD_SHARED_LIBS=OFF \
-            -Dprotobuf_BUILD_SHARED_LIBS=OFF \
-            -DABSL_BUILD_DLL=OFF \
-            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
-            -DBUILD_SAMPLES=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
-            -DUSE_SCIP=OFF -DUSE_HIGHS=OFF -DUSE_COINOR=OFF
-      - name: Configure CMake (Unix)
-        if: runner.os != 'Windows'
+      - name: Configure CMake
         shell: bash
         run: |
           cmake -S . -B build -G Ninja \

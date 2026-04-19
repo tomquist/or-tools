@@ -73,7 +73,6 @@ follow `node-gyp-build`'s naming convention:
 | linux-arm64     | `linux-arm64`   | `node.napi.glibc.node`  |
 | darwin-x64      | `darwin-x64`    | `node.napi.node`        |
 | darwin-arm64    | `darwin-arm64`  | `node.napi.node`        |
-| win32-x64       | `win32-x64`     | `node.napi.node`        |
 
 ### Via cmake-js (convenient for npm workflows)
 
@@ -98,10 +97,36 @@ Prebuilt binaries ship for:
 - `linux-arm64` (glibc)
 - `darwin-x64` (macOS 10.15 deployment target)
 - `darwin-arm64`
-- `win32-x64` (MSVC v143)
 
-Alpine / musl, Bun, and Deno are not officially supported in v1. See
-[README.md](./README.md#status) for the roadmap.
+Windows, Alpine / musl, Bun, and Deno are not officially supported in
+v1. See [README.md](./README.md#status) for the roadmap.
+
+### Windows status
+
+Windows support is a long-tail effort that we deliberately deferred for
+v1 because the MSVC + static-CRT + delay-load + bundled-protobuf stack
+requires several intertwined cmake/dependency patches (the OR-Tools
+`dependencies/` cmake hard-codes `BUILD_SHARED_LIBS ON` and
+`protobuf_BUILD_SHARED_LIBS ON`; protobuf's `protoc.exe` doesn't add
+its own `bin/` to PATH at code-gen time when built as a DLL; the addon
+needs a generated `node_api.lib` import library plus the standard
+delay-load hook).
+
+If you want to try a local Windows build:
+
+1. Install Visual Studio 2022 with the C++ workload, Ninja, and Node 20.
+2. Open a `x64 Native Tools Command Prompt for VS 2022`.
+3. Patch `cmake/dependencies/CMakeLists.txt` to force static deps (see
+   the [Windows-CI history on `tomquist/or-tools`][win-ci] for the
+   exact diff).
+4. Run cmake with `-DBUILD_SHARED_LIBS=OFF
+   -Dprotobuf_BUILD_SHARED_LIBS=OFF -DABSL_BUILD_DLL=OFF
+   -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` plus the standard
+   BUILD_NODE flags.
+
+PRs that productionize Windows support are welcome.
+
+[win-ci]: https://github.com/tomquist/or-tools/commits/tomquist/or-tools/cmake/node.cmake
 
 ## Electron
 

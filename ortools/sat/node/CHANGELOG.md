@@ -27,9 +27,11 @@ Initial release. Tracks upstream OR-Tools 9.15.
   - `AbortSignal` support (resolves with partial response, never
     rejects).
 - Prebuilt binaries for linux-x64 (glibc), linux-arm64 (glibc),
-  darwin-x64, darwin-arm64, and win32-x64. The prebuild filename layout
-  matches `node-gyp-build`'s parser:
+  darwin-x64 (macos-15-intel), and darwin-arm64. The prebuild filename
+  layout matches `node-gyp-build`'s parser:
   `prebuilds/<platform>-<arch>/node.napi[.<libc>].node`.
+- Windows is intentionally not in the v1 prebuild matrix; see
+  CONTRIBUTING.md for status.
 - Symbol isolation: only `napi_register_module_v1` is externally visible
   (Linux version script + Windows `.def`).
 - Tag-driven release workflow at `.github/workflows/node_release.yml`.

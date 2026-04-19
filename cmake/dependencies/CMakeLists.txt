@@ -53,52 +53,10 @@ endif()
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
-# Default to shared libs unless the parent project explicitly asked for
-# static (e.g. the Node addon on Windows where shared protobuf breaks
-# protoc's DLL search at code-gen time).
-if(NOT DEFINED CACHE{BUILD_SHARED_LIBS} AND NOT DEFINED BUILD_SHARED_LIBS)
-  set(BUILD_SHARED_LIBS ON)
-endif()
+set(BUILD_SHARED_LIBS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(BUILD_TESTING OFF)
 set(CMAKE_Fortran_COMPILER OFF)
-# CMake before 3.15 ignored CMAKE_MSVC_RUNTIME_LIBRARY in FetchContent
-# subbuilds; even on 3.24+, projects that don't enable the policy
-# (cmake_policy(SET CMP0091 NEW)) fall back to the legacy
-# CMAKE_<LANG>_FLAGS_<CFG>=/MD route. Pin the flags directly so absl /
-# protobuf / re2 honor whatever runtime the parent picked.
-if(MSVC AND DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
-  # Enable CMP0091 so subprojects honor CMAKE_MSVC_RUNTIME_LIBRARY
-  # rather than baking /MD into CMAKE_<LANG>_FLAGS_<CFG>.
-  cmake_policy(SET CMP0091 NEW)
-  if(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreaded")
-    set(_msvc_crt "/MT")
-  elseif(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreadedDebug")
-    set(_msvc_crt "/MTd")
-  elseif(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreadedDLL")
-    set(_msvc_crt "/MD")
-  elseif(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreadedDebugDLL")
-    set(_msvc_crt "/MDd")
-  endif()
-  if(DEFINED _msvc_crt)
-    # Belt-and-braces: also rewrite CMAKE_<LANG>_FLAGS_<CFG> in case a
-    # subproject still keys off the legacy variable. The string regex
-    # strips any pre-existing /MD or /MT before appending the canonical
-    # one we picked.
-    foreach(_cfg "" "_DEBUG" "_RELEASE" "_RELWITHDEBINFO" "_MINSIZEREL")
-      foreach(_lang CXX C)
-        string(REGEX REPLACE "/M[DT]d?" ""
-               _existing "${CMAKE_${_lang}_FLAGS${_cfg}}")
-        set(CMAKE_${_lang}_FLAGS${_cfg} "${_existing} ${_msvc_crt}")
-        # Push the same change into the cache so FetchContent subbuilds
-        # configured via execute_process pick it up.
-        set(CMAKE_${_lang}_FLAGS${_cfg} "${CMAKE_${_lang}_FLAGS${_cfg}}"
-            CACHE STRING "" FORCE)
-      endforeach()
-    endforeach()
-    message(STATUS "Forcing MSVC runtime ${_msvc_crt} for FetchContent deps")
-  endif()
-endif()
 
 # ##############################################################################
 # ZLIB
@@ -201,18 +159,9 @@ if(BUILD_Protobuf)
     SYSTEM
   )
   set(protobuf_BUILD_TESTS OFF)
-  # Inherit BUILD_SHARED_LIBS rather than hard-coding ON so consumers
-  # (notably the Node addon on Windows) can build a static protoc.
-  if(NOT DEFINED protobuf_BUILD_SHARED_LIBS)
-    set(protobuf_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
-  endif()
+  set(protobuf_BUILD_SHARED_LIBS ON)
   set(protobuf_BUILD_EXPORT OFF)
-  # Inherit static-CRT decision from CMAKE_MSVC_RUNTIME_LIBRARY too.
-  if(MSVC AND CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "^MultiThreaded(Debug)?$")
-    set(protobuf_MSVC_STATIC_RUNTIME ON)
-  else()
-    set(protobuf_MSVC_STATIC_RUNTIME OFF)
-  endif()
+  set(protobuf_MSVC_STATIC_RUNTIME OFF)
   #set(protobuf_BUILD_LIBUPB ON)
   FetchContent_MakeAvailable(Protobuf)
   list(POP_BACK CMAKE_MESSAGE_INDENT)

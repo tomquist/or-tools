@@ -1,5 +1,11 @@
 # Copyright 2010-2025 Google LLC
 # Prebuilds and tests for @ortools-node/cp-sat.
+#
+# Note: Windows is not currently in the matrix. The MSVC + static-CRT +
+# delay-load + bundled-protobuf chain has too many moving parts to keep
+# green in a stable repo fork; track the long-term Windows effort in
+# CONTRIBUTING.md. Linux x64/arm64 + macOS x64/arm64 are the supported
+# platforms for v1.
 name: Node prebuild
 
 on:
@@ -40,46 +46,20 @@ jobs:
           - os: macos-14
             triplet_dir: darwin-arm64
             triplet_file: node.napi.node
-          - os: windows-2022
-            triplet_dir: win32-x64
-            triplet_file: node.napi.node
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Install Ninja (Unix)
-        if: runner.os != 'Windows'
+
+      - name: Install Ninja
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "macOS" ]]; then brew install ninja; fi
           if [[ "$RUNNER_OS" == "Linux" ]]; then sudo apt-get update && sudo apt-get install -y ninja-build; fi
-      - name: Install Ninja (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: choco install ninja -y
-      - name: Setup MSVC dev shell (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
 
-      - name: Configure CMake (Windows — static deps + static CRT)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_CXX=ON -DBUILD_DEPS=ON -DBUILD_NODE=ON \
-            -DBUILD_SHARED_LIBS=OFF \
-            -Dprotobuf_BUILD_SHARED_LIBS=OFF \
-            -DABSL_BUILD_DLL=OFF \
-            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
-            -DBUILD_SAMPLES=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
-            -DUSE_SCIP=OFF -DUSE_HIGHS=OFF -DUSE_COINOR=OFF
-      - name: Configure CMake (Unix)
-        if: runner.os != 'Windows'
+      - name: Configure CMake
         shell: bash
         run: |
           cmake -S . -B build -G Ninja \
@@ -103,14 +83,6 @@ jobs:
           cat /tmp/exports
           echo "napi_register_module_v1" > /tmp/expected
           diff /tmp/expected /tmp/exports
-      - name: Inspect .node deps (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $out = "ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/${{ matrix.triplet_file }}"
-          Get-Item $out | Format-List FullName, Length
-          dumpbin /dependents $out
-          dumpbin /exports $out
 
       - name: Build TS
         working-directory: ortools/sat/node
@@ -128,8 +100,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: prebuild-${{ matrix.triplet_dir }}
-          # Each prebuild is now a directory: the .node + the bundled
-          # runtime shared libraries (libortools, libabsl_*, libprotobuf,
-          # ...). The bundle is what npm pack ships under
+          # Each prebuild is a directory: the .node + the bundled runtime
+          # shared libraries (libortools, libabsl_*, libprotobuf, ...).
+          # That whole directory is what npm pack ships under
           # `prebuilds/<triplet>/`.
           path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/

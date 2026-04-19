@@ -15,6 +15,15 @@ conventions (fluent algebra, explicit ESM, `bigint` for int64 values).
 | Linear solver / Glop | ⏳ future |
 | Graph algorithms     | ⏳ future |
 
+| Platform                 | Prebuilt? |
+| ------------------------ | --------- |
+| linux-x64 (glibc)        | ✅        |
+| linux-arm64 (glibc)      | ✅        |
+| darwin-x64               | ✅        |
+| darwin-arm64             | ✅        |
+| win32-x64                | ⏳ — see CONTRIBUTING.md |
+| linux\* (musl / Alpine)  | ⏳        |
+
 ## Install
 
 ```
