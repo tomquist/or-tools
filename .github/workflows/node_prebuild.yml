@@ -58,7 +58,20 @@ jobs:
         shell: pwsh
         run: choco install ninja -y
 
-      - name: Configure CMake
+      - name: Configure CMake (Windows — static deps to avoid DLL/PATH protoc issues)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_CXX=ON -DBUILD_DEPS=ON -DBUILD_NODE=ON \
+            -DBUILD_SHARED_LIBS=OFF \
+            -Dprotobuf_BUILD_SHARED_LIBS=OFF \
+            -DABSL_BUILD_DLL=OFF \
+            -DBUILD_SAMPLES=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+            -DUSE_SCIP=OFF -DUSE_HIGHS=OFF -DUSE_COINOR=OFF
+      - name: Configure CMake (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           cmake -S . -B build -G Ninja \
