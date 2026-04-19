@@ -6,7 +6,8 @@ on:
   push:
     paths:
       - "ortools/sat/node/**"
-      - "cmake/node.cmake"
+      - "cmake/**"
+      - "CMakeLists.txt"
       - "ortools/sat/**"
       - ".github/workflows/node_prebuild.yml"
     branches:
@@ -14,7 +15,8 @@ on:
   pull_request:
     paths:
       - "ortools/sat/node/**"
-      - "cmake/node.cmake"
+      - "cmake/**"
+      - "CMakeLists.txt"
       - "ortools/sat/**"
       - ".github/workflows/node_prebuild.yml"
   workflow_dispatch:
