@@ -31,6 +31,7 @@ on:
 jobs:
   build:
     name: Prebuild ${{ matrix.triplet_dir }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -105,11 +106,11 @@ jobs:
         shell: bash
         run: npm test
 
-      - name: Upload prebuild artifact
+      - name: Upload prebuild bundle
         uses: actions/upload-artifact@v4
         with:
           name: prebuild-${{ matrix.triplet_dir }}
-          path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/${{ matrix.triplet_file }}
+          path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/
 
   pack:
     name: Pack tarball
@@ -131,21 +132,23 @@ jobs:
           pattern: prebuild-*
           path: ortools/sat/node/_prebuilds_flat
 
-      # Each prebuild artifact unpacks as `_prebuilds_flat/prebuild-<dir>/<file>`.
-      # Move each `<file>` into `prebuilds/<dir>/<file>` to match the layout
-      # node-gyp-build expects at runtime.
+      # Each prebuild artifact unpacks as
+      # `_prebuilds_flat/prebuild-<dir>/<files...>` (the .node and its
+      # bundled runtime shared libs). Move each directory into
+      # `prebuilds/<dir>/` to match the layout node-gyp-build expects.
       - name: Reassemble prebuilds/
         shell: bash
         run: |
           set -e
           cd ortools/sat/node
+          mkdir -p prebuilds
           for d in _prebuilds_flat/prebuild-*; do
             triplet="${d#_prebuilds_flat/prebuild-}"
             mkdir -p "prebuilds/$triplet"
             mv "$d"/* "prebuilds/$triplet/"
           done
           rm -rf _prebuilds_flat
-          ls -laR prebuilds/
+          du -sh prebuilds/*/
 
       - name: Override version (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''

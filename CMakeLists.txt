@@ -121,6 +121,12 @@ if(BUILD_PYTHON OR BUILD_JAVA OR BUILD_DOTNET OR BUILD_NODE)
   set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 endif()
 
+# The Node addon links libortools.so + the absl/protobuf shared libraries
+# its FetchContent dependencies build. cmake/node.cmake bundles those .so /
+# .dylib / .dll files into prebuilds/<triplet>/ next to the .node and sets
+# rpath = $ORIGIN so the dynamic loader finds them at runtime without any
+# LD_LIBRARY_PATH gymnastics.
+
 include(CMakeDependentOption)
 
 # Optional components (enabled by default)

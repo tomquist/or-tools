@@ -21,6 +21,7 @@ on:
 
 jobs:
   build:
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -94,8 +95,12 @@ jobs:
         shell: bash
         run: npm test
 
-      - name: Upload prebuild
+      - name: Upload prebuild bundle
         uses: actions/upload-artifact@v4
         with:
           name: prebuild-${{ matrix.triplet_dir }}
-          path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/${{ matrix.triplet_file }}
+          # Each prebuild is now a directory: the .node + the bundled
+          # runtime shared libraries (libortools, libabsl_*, libprotobuf,
+          # ...). The bundle is what npm pack ships under
+          # `prebuilds/<triplet>/`.
+          path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/
