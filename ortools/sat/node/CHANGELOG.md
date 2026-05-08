@@ -2,6 +2,19 @@
 
 All notable changes to @ortools-node/cp-sat are documented in this file.
 
+## 9.15.0-node.0-rc.1 (2026-05-08)
+
+### Fixed
+
+- Native segfault at process teardown when `solver.solve()` was passed a
+  `CpSolverSolutionCallback` ([#1]). The `SolutionBridge`'s
+  `ThreadSafeFunction` could be drained by libuv after the bridge had
+  already been destroyed, dangling pointers held by queued payloads. The
+  bridge is now owned by its own TSFN finalizer, so it cannot be freed
+  until any in-flight callbacks have been drained on the JS thread.
+
+[#1]: https://github.com/tomquist/or-tools/pull/1
+
 ## 9.15.0-node.0-rc.0 (2026-05-08)
 
 Initial release. Tracks upstream OR-Tools 9.15.
