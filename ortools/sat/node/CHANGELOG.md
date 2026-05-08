@@ -2,7 +2,7 @@
 
 All notable changes to @ortools-node/cp-sat are documented in this file.
 
-## 9.15.0-node.0
+## 9.15.0-node.0-rc.0 (2026-05-08)
 
 Initial release. Tracks upstream OR-Tools 9.15.
 

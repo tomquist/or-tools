@@ -1,12 +1,12 @@
 {
   "name": "@ortools-node/cp-sat",
-  "version": "9.15.0-node.0",
+  "version": "9.15.0-node.0-rc.0",
   "description": "Google OR-Tools CP-SAT solver bindings for Node.js / TypeScript.",
   "license": "Apache-2.0",
   "homepage": "https://developers.google.com/optimization",
   "repository": {
     "type": "git",
-    "url": "https://github.com/google/or-tools.git",
+    "url": "https://github.com/tomquist/or-tools.git",
     "directory": "ortools/sat/node"
   },
   "keywords": [
@@ -17,6 +17,9 @@
     "optimization",
     "solver"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
