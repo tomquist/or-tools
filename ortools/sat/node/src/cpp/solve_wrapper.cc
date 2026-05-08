@@ -36,39 +36,52 @@ namespace operations_research::sat::node_binding {
 // The native sat::SolutionCallback's OnSolutionCallback is invoked by a SAT
 // worker thread. We must not touch v8 from there. The bridge:
 //   * snapshots SharedResponse() (a shared_ptr<CpSolverResponse>),
-//   * dispatches to the JS thread via a TSFN with BlockingCall (back-pressure
-//     -- slow JS callbacks throttle the solver, which is what we want),
+//   * dispatches to the JS thread via a TSFN with BlockingCall,
 //   * the JS-side dispatcher constructs a frozen "context" object and invokes
 //     onSolutionCallback(ctx) on the user's target.
 //
-// The bridge owns:
-//   * a Napi::ThreadSafeFunction (released on Cleanup)
-//   * a Napi::FunctionReference to the user's onSolutionCallback (released
-//     when the bridge is destroyed).
+// Lifetime: the bridge is owned by its own ThreadSafeFunction. Construction
+// returns a raw pointer that the SolveWrapperJs holds non-owningly. To
+// release, call Detach(); that releases the TSFN, which will drain any
+// queued payloads on the JS thread and then run the TSFN finalizer that
+// `delete`s the bridge. This is required because every queued Payload holds
+// pointers into the bridge's Napi references -- destroying the bridge while
+// payloads remain in flight (e.g. eagerly when solve() resolves) would
+// dangle those pointers and segfault when the TSFN queue is drained later
+// (most commonly at process teardown, since the TSFN is Unref'd).
 
 class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
  public:
-  SolutionBridge(Napi::Env env, Napi::Object target_obj,
-                 Napi::Function on_solution_fn) {
-    target_ref_ = Napi::Persistent(target_obj);
-    on_solution_ref_ = Napi::Persistent(on_solution_fn);
-    tsfn_ = Napi::ThreadSafeFunction::New(
+  // Factory: creates a bridge whose lifetime is owned by its TSFN. The
+  // returned pointer is valid until Detach() is called *and* the TSFN queue
+  // has been fully drained on the JS thread. Callers must only hold it
+  // non-owningly.
+  static SolutionBridge* Create(Napi::Env env, Napi::Object target_obj,
+                                Napi::Function on_solution_fn) {
+    auto* bridge = new SolutionBridge();
+    bridge->target_ref_ = Napi::Persistent(target_obj);
+    bridge->on_solution_ref_ = Napi::Persistent(on_solution_fn);
+    bridge->tsfn_ = Napi::ThreadSafeFunction::New(
         env, on_solution_fn, "ortools-solution-cb",
-        /*max_queue_size=*/0, /*initial_thread_count=*/1);
-    tsfn_.Unref(env);
+        /*max_queue_size=*/0, /*initial_thread_count=*/1,
+        /*finalizer=*/[](Napi::Env, SolutionBridge* self) { delete self; },
+        /*data=*/bridge);
+    bridge->tsfn_.Unref(env);
+    return bridge;
   }
 
-  ~SolutionBridge() override {
-    if (released_.exchange(true)) return;
+  // Releases the TSFN. Once any in-flight payloads have been drained on the
+  // JS thread, the TSFN finalizer runs and `delete`s this bridge. Idempotent
+  // and safe to call multiple times; only the first call has effect.
+  void Detach() {
+    if (detached_.exchange(true)) return;
     tsfn_.Release();
   }
 
-  // Returns the underlying JS object we use as a stable identity for
-  // ClearSolutionCallback on the JS side.
-  napi_value identity_value(Napi::Env env) const { return target_ref_.Value(); }
-
   // Called from a SAT worker thread.
   void OnSolutionCallback() const override {
+    if (detached_.load()) return;
+
     auto resp = SharedResponse();
     if (!resp) return;
 
@@ -76,19 +89,29 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
     // SolveWrapper::StopSearch() if the user's callback requests it.
     sat::SolveWrapper* w = wrapper();
 
-    auto status = tsfn_.BlockingCall(
-        new Payload{resp, w, &target_ref_, &on_solution_ref_},
-        &SolutionBridge::DispatchOnJsThread);
+    auto* payload = new Payload{resp, w, this, &target_ref_, &on_solution_ref_};
+    auto status =
+        tsfn_.BlockingCall(payload, &SolutionBridge::DispatchOnJsThread);
     if (status != napi_ok) {
-      // TSFN closed (e.g. user dropped the callback mid-solve). Stop quietly.
-      // The leaked Payload is fine because nothing was queued.
+      // TSFN closed (e.g. Detach() raced with a worker callback). Drop the
+      // payload; nothing was queued so the dispatcher will not run.
+      delete payload;
     }
   }
 
  private:
+  // Constructible only via Create(); destructible only via the TSFN
+  // finalizer. This enforces the lifetime contract above.
+  SolutionBridge() = default;
+  ~SolutionBridge() override = default;
+
   struct Payload {
     std::shared_ptr<sat::CpSolverResponse> response;
     sat::SolveWrapper* wrapper;
+    // Back-pointer to the bridge so the dispatcher can short-circuit late
+    // callbacks (queued on the worker thread before Detach() ran) and avoid
+    // touching the user-facing target after the JS-side solve has resolved.
+    const SolutionBridge* bridge;
     const Napi::Reference<Napi::Object>* target_ref;
     const Napi::Reference<Napi::Function>* fn_ref;
   };
@@ -97,6 +120,13 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
                                  Payload* payload) {
     std::unique_ptr<Payload> p(payload);
     if (env == nullptr || !p) return;
+    // If the bridge was detached after this payload was queued (typical when
+    // the SAT worker fired one last callback as solve() was completing), skip
+    // the user dispatch entirely. The JS-side solve() promise has already
+    // resolved, the SolveWrapper backing ctx.stopSearch() may have been
+    // destroyed, and invoking the user's callback here would surface a
+    // surprise "extra" solution after solve() returned.
+    if (p->bridge != nullptr && p->bridge->detached_.load()) return;
 
     Napi::HandleScope scope(env);
 
@@ -203,7 +233,10 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
   Napi::ThreadSafeFunction tsfn_;
   Napi::Reference<Napi::Object> target_ref_;
   Napi::Reference<Napi::Function> on_solution_ref_;
-  mutable std::atomic<bool> released_{false};
+  // Set when Detach() runs; suppresses further BlockingCalls (which would
+  // race with the TSFN being released) without changing the visible "alive"
+  // state on the JS side.
+  std::atomic<bool> detached_{false};
 };
 
 // ----------------------------------------------------------------------------
@@ -309,6 +342,12 @@ void SolveWrapperJs::ReleaseCallbackTsfns() {
   log_tsfns_.clear();
   for (auto& tsfn : best_bound_tsfns_) tsfn.Release();
   best_bound_tsfns_.clear();
+  // Detach (don't delete) each solution bridge: the TSFN finalizer is the
+  // sole owner and will free the bridge once any queued payloads have been
+  // drained on the JS thread. Eager deletion here would dangle pointers held
+  // by in-flight payloads and segfault when the queue is drained at
+  // teardown.
+  for (auto* bridge : solution_bridges_) bridge->Detach();
   solution_bridges_.clear();
 }
 
@@ -428,12 +467,15 @@ Napi::Value SolveWrapperJs::AddSolutionCallback(
         .ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  auto bridge = std::make_unique<SolutionBridge>(
-      env, target, on_sol_v.As<Napi::Function>());
+  // The bridge is owned by its own TSFN; we keep a non-owning pointer so we
+  // can Detach() it after solve completes. See SolutionBridge for lifetime
+  // details.
+  SolutionBridge* bridge =
+      SolutionBridge::Create(env, target, on_sol_v.As<Napi::Function>());
   wrapper_->AddSolutionCallback(*bridge);
   {
     std::lock_guard<std::mutex> lock(mu_);
-    solution_bridges_.push_back(std::move(bridge));
+    solution_bridges_.push_back(bridge);
   }
   return env.Undefined();
 }
