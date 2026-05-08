@@ -66,9 +66,13 @@ class SolveWrapperJs : public Napi::ObjectWrap<SolveWrapperJs> {
   std::atomic<bool> solve_in_flight_;
   std::atomic<bool> solve_done_;
 
-  // Solution-callback bridge owns its own TSFN and target ref.
+  // Solution-callback bridge: owns its own TSFN, JS target ref, and the
+  // user's onSolutionCallback ref. Lifetime is controlled by the TSFN
+  // finalizer (see solve_wrapper.cc); the wrapper only holds a non-owning
+  // pointer so it can detach the bridge after a solve completes without
+  // tearing down state that the TSFN queue may still reference.
   class SolutionBridge;
-  std::vector<std::unique_ptr<SolutionBridge>> solution_bridges_;
+  std::vector<SolutionBridge*> solution_bridges_;
 
   // Log + best-bound TSFNs, released in Cleanup().
   std::vector<Napi::ThreadSafeFunction> log_tsfns_;

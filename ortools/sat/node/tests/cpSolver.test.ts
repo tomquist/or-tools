@@ -112,6 +112,40 @@ d('CpSolver — native', () => {
     expect(lastValue).toBe(3n);
   });
 
+  // Regression: looping solve() with a (possibly empty) solution callback used
+  // to segfault ~30-50% of the time at process teardown because the
+  // SolutionBridge's TSFN was Unref'd and could outlive the bridge object,
+  // dangling pointers held by queued payloads. The bridge is now owned by its
+  // TSFN finalizer; this test would crash the worker if that contract
+  // regressed.
+  it(
+    'survives many solves with a solution callback (lifetime regression)',
+    async () => {
+      const {
+        CpModel,
+        CpSolver,
+        CpSolverSolutionCallback,
+        LinearExpr,
+      } = await import('../src/index.js');
+      class Printer extends CpSolverSolutionCallback {
+        override onSolutionCallback(): void {}
+      }
+      for (let i = 0; i < 10; i++) {
+        const m = new CpModel();
+        const s = m.newIntVar(0, 8, 's');
+        m.newIntervalVar(s, 2, m.newIntVar(2, 8, 'e'), 'iv');
+        m.minimize(LinearExpr.constant(0).add(m.newIntVar(0, 0, 't')));
+        const solver = new CpSolver();
+        solver.parameters.numWorkers = 1;
+        await solver.solve(m);
+        m.minimize(s);
+        await solver.solve(m, { callback: new Printer() });
+      }
+      expect(true).toBe(true);
+    },
+    20_000,
+  );
+
   it('stopSearch cancels a long solve within DoD budget (<500ms post-stop)', async () => {
     const { CpModel, CpSolver } = await import('../src/index.js');
     const m = new CpModel();
