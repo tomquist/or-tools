@@ -7,9 +7,10 @@
 #   2. Aggregates the prebuilt .node binaries into ortools/sat/node/prebuilds/.
 #   3. Runs `npm pack` to produce the npm tarball.
 #   4. Uploads the tarball as a build artifact and as a GitHub release asset.
-#   5. Publishes to npm with provenance, gated behind the `npm-publish`
-#      environment so a maintainer must approve the publish step before the
-#      package is pushed live.
+#   5. Publishes to npm via Trusted Publishing (OIDC), gated behind the
+#      `npm-publish` environment so a maintainer must approve the publish
+#      step before the package is pushed live. Pre-release versions are
+#      tagged as `next` on npm.
 #
 # To cut a release:
 #   1. Bump the version in ortools/sat/node/package.json.
@@ -186,18 +187,19 @@ jobs:
     needs: pack
     runs-on: ubuntu-latest
     # The `npm-publish` environment must be configured in the repo settings
-    # with required reviewers + the NPM_TOKEN secret. This gates the publish
-    # step behind a manual approval click.
+    # with required reviewers. This gates the publish step behind a manual
+    # approval click. Authentication uses Trusted Publishing (OIDC) -- no
+    # NPM_TOKEN secret is needed.
     environment:
       name: npm-publish
       url: https://www.npmjs.com/package/@ortools-node/cp-sat
     permissions:
       contents: read
-      id-token: write   # for npm provenance
+      id-token: write   # OIDC for npm Trusted Publishing
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
       - uses: actions/download-artifact@v4
         with:
@@ -234,10 +236,19 @@ jobs:
           EOF
           node smoke.mjs
 
+      - name: Determine npm dist-tag
+        id: dist-tag
+        shell: bash
+        run: |
+          version=$(tar -xOf "$GITHUB_WORKSPACE"/*.tgz package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+          if [[ "$version" == *-* ]]; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: npm publish
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -e
-          npm publish "$GITHUB_WORKSPACE"/*.tgz --provenance --access public
+          npm publish "$GITHUB_WORKSPACE"/*.tgz --access public --tag ${{ steps.dist-tag.outputs.tag }}
