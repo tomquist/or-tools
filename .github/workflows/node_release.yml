@@ -109,6 +109,8 @@ jobs:
     name: Pack tarball
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       tarball: ${{ steps.pack.outputs.tarball }}
       version: ${{ steps.pack.outputs.version }}
