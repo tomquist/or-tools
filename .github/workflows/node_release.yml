@@ -201,6 +201,11 @@ jobs:
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      # Trusted Publishing needs npm >= 11.5.1; Node 22 ships with npm 10.x
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
       - uses: actions/download-artifact@v4
         with:
           name: npm-tarball
