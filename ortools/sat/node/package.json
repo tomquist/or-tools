@@ -56,6 +56,8 @@
   "optionalDependencies": {
     "@ortools-node/cp-sat-linux-x64": "9.15.0-node.0-rc.2",
     "@ortools-node/cp-sat-linux-arm64": "9.15.0-node.0-rc.2",
+    "@ortools-node/cp-sat-linux-x64-musl": "9.15.0-node.0-rc.2",
+    "@ortools-node/cp-sat-linux-arm64-musl": "9.15.0-node.0-rc.2",
     "@ortools-node/cp-sat-darwin-x64": "9.15.0-node.0-rc.2",
     "@ortools-node/cp-sat-darwin-arm64": "9.15.0-node.0-rc.2"
   },

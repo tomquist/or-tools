@@ -18,29 +18,12 @@
 // CpModelProto byte-stream that's behaviorally identical to what Python /
 // Java / Go would produce for the equivalent model.
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fromBinary, toBinary } from '@bufbuild/protobuf';
 
-import { readdirSync } from 'node:fs';
+import { hasNative } from './_native-helper.js';
 
-function hasNative(): boolean {
-  const dir =
-    process.platform === 'win32'
-      ? 'win32-x64'
-      : process.platform === 'darwin'
-        ? `darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`
-        : `linux-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
-  const prebuilds = join(import.meta.dirname, '..', 'prebuilds', dir);
-  try {
-    return readdirSync(prebuilds).some((f) => f.endsWith('.node'));
-  } catch {
-    return existsSync(join(prebuilds, 'node.napi.node'));
-  }
-}
-
-const skip = !hasNative();
+const skip = !hasNative(import.meta.url);
 const d = skip ? describe.skip : describe;
 
 d('Cross-binding equivalence', () => {

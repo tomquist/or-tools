@@ -56,6 +56,8 @@ const stagingRoot = join(root, '_platform-packages');
 const PLATFORMS = {
   'linux-x64': { name: 'cp-sat-linux-x64', os: ['linux'], cpu: ['x64'], libc: ['glibc'] },
   'linux-arm64': { name: 'cp-sat-linux-arm64', os: ['linux'], cpu: ['arm64'], libc: ['glibc'] },
+  'linux-x64-musl': { name: 'cp-sat-linux-x64-musl', os: ['linux'], cpu: ['x64'], libc: ['musl'] },
+  'linux-arm64-musl': { name: 'cp-sat-linux-arm64-musl', os: ['linux'], cpu: ['arm64'], libc: ['musl'] },
   'darwin-x64': { name: 'cp-sat-darwin-x64', os: ['darwin'], cpu: ['x64'] },
   'darwin-arm64': { name: 'cp-sat-darwin-arm64', os: ['darwin'], cpu: ['arm64'] },
 };

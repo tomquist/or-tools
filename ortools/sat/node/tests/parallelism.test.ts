@@ -16,26 +16,11 @@
 // scraping the solve log for the "num_search_workers" banner and for
 // worker-id tags in the portfolio status lines on a non-trivial model.
 
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-function hasNative(): boolean {
-  const dir =
-    process.platform === 'win32'
-      ? 'win32-x64'
-      : process.platform === 'darwin'
-        ? `darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`
-        : `linux-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
-  const prebuilds = join(import.meta.dirname, '..', 'prebuilds', dir);
-  try {
-    return readdirSync(prebuilds).some((f) => f.endsWith('.node'));
-  } catch {
-    return existsSync(join(prebuilds, 'node.napi.node'));
-  }
-}
+import { hasNative } from './_native-helper.js';
 
-const d = hasNative() ? describe : describe.skip;
+const d = hasNative(import.meta.url) ? describe : describe.skip;
 
 d('parallelism', () => {
   it('numSearchWorkers > 1 propagates into the solve log', async () => {

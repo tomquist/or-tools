@@ -28,8 +28,11 @@ function detectTriplet() {
   if (platform() === 'win32') return 'win32-x64';
   if (platform() === 'darwin') return `darwin-${a}`;
   if (platform() === 'linux') {
-    const libc = existsSync('/etc/alpine-release') ? 'musl' : 'glibc';
-    return `linux-${a}-${libc}`;
+    // Glibc Linux uses no suffix; musl gets `-musl` so the two libcs can
+    // coexist as siblings under prebuilds/. This matches the directory
+    // layout that cmake/node.cmake produces and that scripts/build-
+    // platform-packages.mjs maps to platform-package names.
+    return existsSync('/etc/alpine-release') ? `linux-${a}-musl` : `linux-${a}`;
   }
   throw new Error(`unsupported platform ${platform()}`);
 }

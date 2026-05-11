@@ -34,15 +34,47 @@ interface PlatformId {
   readonly triplet: string;
 }
 
+let cachedIsMusl: boolean | undefined;
+
+/**
+ * Detect a musl-libc Linux runtime. We use the `glibcVersionRuntime`
+ * field of `process.report.getReport()` — present on glibc, absent on
+ * musl. This is the same probe `node-gyp-build` uses internally, and
+ * works across Alpine, distroless musl, Void Linux musl, etc. Cached
+ * because `getReport()` allocates a non-trivial amount of metadata.
+ */
+function isMusl(): boolean {
+  if (cachedIsMusl !== undefined) return cachedIsMusl;
+  if (process.platform !== 'linux') {
+    cachedIsMusl = false;
+    return cachedIsMusl;
+  }
+  try {
+    const report = process.report?.getReport?.() as
+      | { header?: { glibcVersionRuntime?: string } }
+      | undefined;
+    cachedIsMusl = !report?.header?.glibcVersionRuntime;
+  } catch {
+    // process.report unavailable (very old Node) — assume glibc, which
+    // is the safer default on a non-musl host.
+    cachedIsMusl = false;
+  }
+  return cachedIsMusl;
+}
+
 function detectPlatform(): PlatformId {
   const { platform, arch } = process;
   // Normalize x32/ia32/etc. to x64; the prebuilds we ship are x64 + arm64.
   // Unsupported arches still get a pkg/triplet name so the error message
   // points at exactly what's missing.
   const a = arch === 'arm64' ? 'arm64' : 'x64';
+  // Linux musl gets a `-musl` suffix on both the package name and the
+  // in-tree triplet directory; glibc Linux and non-Linux platforms have
+  // no suffix.
+  const suffix = platform === 'linux' && isMusl() ? '-musl' : '';
   return {
-    pkg: `@ortools-node/cp-sat-${platform}-${a}`,
-    triplet: `${platform}-${a}`,
+    pkg: `@ortools-node/cp-sat-${platform}-${a}${suffix}`,
+    triplet: `${platform}-${a}${suffix}`,
   };
 }
 
