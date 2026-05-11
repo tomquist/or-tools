@@ -1,6 +1,6 @@
 {
   "name": "@ortools-node/cp-sat",
-  "version": "9.15.0-node.0-rc.1",
+  "version": "9.15.0-node.0-rc.2",
   "description": "Google OR-Tools CP-SAT solver bindings for Node.js / TypeScript.",
   "license": "Apache-2.0",
   "homepage": "https://developers.google.com/optimization",
@@ -32,7 +32,6 @@
   },
   "files": [
     "dist/",
-    "prebuilds/",
     "src/cpp/",
     "version.lds",
     "README.md",
@@ -52,8 +51,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.2.3",
-    "node-gyp-build": "^4.8.4"
+    "@bufbuild/protobuf": "^2.2.3"
+  },
+  "optionalDependencies": {
+    "@ortools-node/cp-sat-linux-x64": "9.15.0-node.0-rc.2",
+    "@ortools-node/cp-sat-linux-arm64": "9.15.0-node.0-rc.2",
+    "@ortools-node/cp-sat-darwin-x64": "9.15.0-node.0-rc.2",
+    "@ortools-node/cp-sat-darwin-arm64": "9.15.0-node.0-rc.2"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.47.2",
