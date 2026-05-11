@@ -6,25 +6,35 @@ All notable changes to @ortools-node/cp-sat are documented in this file.
 
 ### Changed
 
-- Repackaged as a slim main package + four per-platform optional
+- Repackaged as a slim main package + six per-platform optional
   dependencies, mirroring the layout used by `esbuild`, `@swc/core`,
   and `sharp`. Installing `@ortools-node/cp-sat` now pulls only the
   ~1 MB JS layer plus the matching one of:
   - `@ortools-node/cp-sat-linux-x64` (~69 MB, glibc)
   - `@ortools-node/cp-sat-linux-arm64` (~63 MB, glibc)
+  - `@ortools-node/cp-sat-linux-x64-musl` (~70 MB, musl/Alpine)
+  - `@ortools-node/cp-sat-linux-arm64-musl` (~65 MB, musl/Alpine)
   - `@ortools-node/cp-sat-darwin-x64` (~89 MB)
   - `@ortools-node/cp-sat-darwin-arm64` (~91 MB)
 
-  Previous releases shipped all four prebuilds in a single ~310 MB
-  tarball. Public API is byte-for-byte unchanged; this is a
-  transparent install-time size reduction.
+  Previous releases shipped all four glibc/macOS prebuilds in a
+  single ~310 MB tarball with no Alpine support. Public API is
+  byte-for-byte unchanged; this is a transparent install-time size
+  reduction plus first-class musl coverage.
 - Removed the `node-gyp-build` runtime dependency. The native loader
   now `require.resolve()`s the matching platform package directly,
   with a fallback to the in-tree `prebuilds/<triplet>/` layout for
   build-from-source consumers and in-repo development.
-- Linux platform packages declare `"libc": ["glibc"]` so npm 10+
-  refuses to install them on Alpine/musl, where the loader's
-  fallback message will steer users to build-from-source.
+- Each platform package declares `os` / `cpu` / (Linux-only) `libc`
+  fields so npm 10+ installs only the matching one. Linux musl is
+  detected at runtime via `process.report.getReport().header.glibcVersionRuntime`
+  (the same probe `node-gyp-build` used internally), and the loader
+  appends a `-musl` suffix to the platform-package name.
+- The musl prebuilds bundle `libstdc++.so.6` and `libgcc_s.so.1`
+  alongside the addon — the same self-containment strategy that the
+  OR-Tools Python `musllinux` wheel achieves via `auditwheel repair`.
+  Bare `node:20-alpine` consumers (and slimmed/distroless musl
+  images) need no additional `apk add`.
 
 ## 9.15.0-node.0-rc.1 (2026-05-08)
 

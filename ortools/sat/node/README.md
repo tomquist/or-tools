@@ -19,10 +19,11 @@ conventions (fluent algebra, explicit ESM, `bigint` for int64 values).
 | ------------------------ | --------- |
 | linux-x64 (glibc)        | ✅        |
 | linux-arm64 (glibc)      | ✅        |
+| linux-x64 (musl/Alpine)  | ✅        |
+| linux-arm64 (musl/Alpine)| ✅        |
 | darwin-x64               | ✅        |
 | darwin-arm64             | ✅        |
 | win32-x64                | ⏳ — see CONTRIBUTING.md |
-| linux\* (musl / Alpine)  | ⏳        |
 
 ## Install
 
@@ -36,10 +37,16 @@ on supported platforms — only the matching one is downloaded:
 
 - `@ortools-node/cp-sat-linux-x64` (glibc, ~69 MB)
 - `@ortools-node/cp-sat-linux-arm64` (glibc, ~63 MB)
+- `@ortools-node/cp-sat-linux-x64-musl` (Alpine, ~70 MB)
+- `@ortools-node/cp-sat-linux-arm64-musl` (Alpine, ~65 MB)
 - `@ortools-node/cp-sat-darwin-x64` (~89 MB)
 - `@ortools-node/cp-sat-darwin-arm64` (~91 MB)
 
-Alpine (musl) and Windows must build from source — see
+The musl prebuilds bundle `libstdc++.so.6` and `libgcc_s.so.1`
+alongside the addon, so they work on bare `node:20-alpine` and on
+slimmed/distroless musl images without any additional `apk add`.
+
+Windows must build from source — see
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). Installing with `--no-optional`
 will skip the native package; the loader will then fall back to a
 local build at `<package-root>/prebuilds/<triplet>/` if present.

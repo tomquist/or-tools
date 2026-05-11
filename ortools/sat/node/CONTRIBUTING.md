@@ -95,11 +95,15 @@ Prebuilt binaries ship for:
 
 - `linux-x64` (glibc, Ubuntu 22.04 baseline)
 - `linux-arm64` (glibc)
+- `linux-x64-musl` (built inside `node:20-alpine`; bundles
+  libstdc++ + libgcc_s alongside the addon, mirroring what the
+  OR-Tools Python `musllinux` wheel does via `auditwheel repair`)
+- `linux-arm64-musl` (same, on `ubuntu-22.04-arm` runner)
 - `darwin-x64` (macOS 10.15 deployment target)
 - `darwin-arm64`
 
-Windows, Alpine / musl, Bun, and Deno are not officially supported in
-v1. See [README.md](./README.md#status) for the roadmap.
+Windows, Bun, and Deno are not officially supported in v1. See
+[README.md](./README.md#status) for the roadmap.
 
 ### Windows status
 
@@ -166,11 +170,12 @@ shows up in PR review, not at tag time.
 
 ## Troubleshooting
 
-### `no prebuilt binary for …`
+### `no prebuilt native addon found for …`
 
-Either your platform is not in the prebuild matrix or `node-gyp-build`
-cannot find a match (usually libc mismatch on Alpine). Build from source
-using the commands above.
+Your platform is not in the prebuild matrix (Windows, Bun, Deno, or
+exotic libc/arch combinations). Build from source using the commands
+above. The loader will pick up the resulting addon from
+`<package-root>/prebuilds/<triplet>/` automatically.
 
 ### Symbols clash with grpc-node / tensorflow-node
 
