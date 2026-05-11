@@ -102,6 +102,191 @@ jobs:
           name: prebuild-${{ matrix.triplet_dir }}
           # Each prebuild is a directory: the .node + the bundled runtime
           # shared libraries (libortools, libabsl_*, libprotobuf, ...).
-          # That whole directory is what npm pack ships under
-          # `prebuilds/<triplet>/`.
+          # That whole directory is what the per-platform tarball ships
+          # under `@ortools-node/cp-sat-<plat>-<arch>/`.
           path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/
+
+      # ----- Per-runner packaging dry-run -----
+      # Build the matching @ortools-node/cp-sat-<plat>-<arch> staging dir
+      # from the just-built prebuild, npm pack both the slim main and the
+      # platform package, sanity-check tarball contents, then npm install
+      # the pair into a scratch dir and run scripts/smoke.mjs end-to-end.
+      # This rehearses on every PR exactly what consumers will experience
+      # when they `npm install @ortools-node/cp-sat`, on the same OS/arch
+      # the binary was built for.
+      - name: Build platform package staging dir
+        working-directory: ortools/sat/node
+        shell: bash
+        run: node scripts/build-platform-packages.mjs
+
+      - name: Pack main + matching platform tarball
+        id: pack
+        working-directory: ortools/sat/node
+        shell: bash
+        run: |
+          set -e
+          mkdir -p _tarballs
+          main_tarball=$(npm pack 2>/dev/null | tail -n1)
+          mv "$main_tarball" _tarballs/
+          plat_tarball=$(cd _platform-packages/cp-sat-${{ matrix.triplet_dir }} && npm pack 2>/dev/null | tail -n1)
+          mv "_platform-packages/cp-sat-${{ matrix.triplet_dir }}/$plat_tarball" _tarballs/
+          ls -la _tarballs/
+          main=$(ls _tarballs/ortools-node-cp-sat-*.tgz | grep -Ev 'cp-sat-(linux|darwin|win32)-')
+          plat=$(ls _tarballs/ortools-node-cp-sat-${{ matrix.triplet_dir }}-*.tgz)
+          echo "main=$main" >> "$GITHUB_OUTPUT"
+          echo "plat=$plat" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tarball contents
+        working-directory: ortools/sat/node
+        shell: bash
+        run: |
+          set -e
+          main="${{ steps.pack.outputs.main }}"
+          plat="${{ steps.pack.outputs.plat }}"
+          # Main tarball must NOT contain any prebuilds/ — that's the whole
+          # point of the slim main package.
+          if tar -tf "$main" | grep -q '^package/prebuilds/'; then
+            echo "ERROR: main tarball contains prebuilds/" >&2
+            tar -tf "$main" | grep '^package/prebuilds/' >&2
+            exit 1
+          fi
+          # Required main-package payload.
+          for required in package/dist/index.js package/src/cpp/binding.cc package/version.lds; do
+            tar -tf "$main" | grep -qx "$required" || {
+              echo "ERROR: main tarball missing $required" >&2; exit 1; }
+          done
+          # Main must declare optionalDependencies for all 4 platform packages.
+          tar -xOf "$main" package/package.json | node -e "
+            const p = JSON.parse(require('fs').readFileSync(0,'utf8'));
+            const want = ['linux-x64','linux-arm64','darwin-x64','darwin-arm64'];
+            const errs = [];
+            for (const w of want) {
+              const k = '@ortools-node/cp-sat-' + w;
+              if (!p.optionalDependencies || !p.optionalDependencies[k]) {
+                errs.push('missing optionalDependency: ' + k);
+              }
+            }
+            if (errs.length) { console.error(errs.join('\n')); process.exit(1); }
+          "
+          # Platform tarball must contain cp-sat.node and a coherent package.json.
+          tar -tf "$plat" | grep -qx 'package/cp-sat.node' || {
+            echo "ERROR: platform tarball missing cp-sat.node" >&2; exit 1; }
+          TRIPLET="${{ matrix.triplet_dir }}" tar -xOf "$plat" package/package.json | node -e "
+            const p = JSON.parse(require('fs').readFileSync(0,'utf8'));
+            const main = JSON.parse(require('fs').readFileSync('package.json','utf8'));
+            const triplet = process.env.TRIPLET;
+            const expectName = '@ortools-node/cp-sat-' + triplet;
+            const errs = [];
+            if (p.name !== expectName) errs.push('name mismatch: ' + p.name + ' vs ' + expectName);
+            if (p.version !== main.version) errs.push('version mismatch: ' + p.version + ' vs ' + main.version);
+            if (p.main !== './cp-sat.node') errs.push('main mismatch: ' + p.main);
+            if (!Array.isArray(p.os) || p.os.length !== 1) errs.push('os mismatch');
+            if (!Array.isArray(p.cpu) || p.cpu.length !== 1) errs.push('cpu mismatch');
+            if (triplet.startsWith('linux-')) {
+              if (!Array.isArray(p.libc) || !p.libc.includes('glibc')) errs.push('linux libc must be [glibc]');
+            } else {
+              if (p.libc) errs.push('non-linux package should not declare libc');
+            }
+            if (errs.length) { console.error(errs.join('\n')); process.exit(1); }
+          "
+          echo "tarball contents OK"
+
+      - name: End-to-end install smoke test
+        shell: bash
+        run: |
+          set -e
+          mkdir -p /tmp/install-test
+          cd /tmp/install-test
+          npm init -y >/dev/null
+          npm pkg set type=module
+          # Install main + the runner's matching platform tarball. The
+          # other 3 platform tarballs aren't on disk; npm will warn that
+          # some optional deps couldn't be resolved (same UX as a real
+          # cross-OS install).
+          npm install --no-audit --no-fund \
+            "$GITHUB_WORKSPACE/${{ steps.pack.outputs.main }}" \
+            "$GITHUB_WORKSPACE/${{ steps.pack.outputs.plat }}"
+          cp "$GITHUB_WORKSPACE/ortools/sat/node/scripts/smoke.mjs" smoke.mjs
+          node smoke.mjs
+
+      - name: Upload PR tarballs (per-runner)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-tarballs-${{ matrix.triplet_dir }}
+          path: ortools/sat/node/_tarballs/
+
+  # Mirrors the release workflow's pack job: download all 4 prebuilds,
+  # rebuild TS, run scripts/build-platform-packages.mjs, and pack all 5
+  # tarballs at once. Catches "release pipeline can't produce all 5"
+  # regressions without having to cut a tag.
+  pack-dry-run:
+    name: Pack-all dry run
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download all prebuilds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: prebuild-*
+          path: ortools/sat/node/_prebuilds_flat
+
+      - name: Reassemble prebuilds/
+        working-directory: ortools/sat/node
+        shell: bash
+        run: |
+          set -e
+          mkdir -p prebuilds
+          for d in _prebuilds_flat/prebuild-*; do
+            triplet="${d#_prebuilds_flat/prebuild-}"
+            mkdir -p "prebuilds/$triplet"
+            mv "$d"/* "prebuilds/$triplet/"
+          done
+          rm -rf _prebuilds_flat
+          du -sh prebuilds/*/
+
+      - name: Build TS
+        working-directory: ortools/sat/node
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+
+      - name: Build platform packages
+        working-directory: ortools/sat/node
+        shell: bash
+        run: node scripts/build-platform-packages.mjs
+
+      - name: Pack everything
+        working-directory: ortools/sat/node
+        shell: bash
+        run: |
+          set -e
+          mkdir -p _tarballs
+          mv "$(npm pack 2>/dev/null | tail -n1)" _tarballs/
+          for d in _platform-packages/*/; do
+            tar=$(cd "$d" && npm pack 2>/dev/null | tail -n1)
+            mv "$d/$tar" _tarballs/
+          done
+          ls -la _tarballs/
+          # Exactly 5 tarballs (1 main + 4 platforms) at one version.
+          count=$(ls _tarballs/*.tgz | wc -l)
+          if [[ "$count" != "5" ]]; then
+            echo "ERROR: expected 5 tarballs, got $count" >&2
+            exit 1
+          fi
+          version=$(node -p "require('./package.json').version")
+          for t in _tarballs/*.tgz; do
+            [[ "$t" == *"-$version.tgz" ]] || {
+              echo "ERROR: $t does not match version $version" >&2; exit 1; }
+          done
+
+      - name: Upload aggregated PR tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-tarballs-all
+          path: ortools/sat/node/_tarballs/

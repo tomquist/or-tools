@@ -4,16 +4,23 @@
 # Trigger: pushing a tag that matches `cp-sat-v*`. The workflow:
 #   1. Builds the prebuild matrix (linux x64/arm64, macOS x64/arm64).
 #      Windows is intentionally not in the matrix; see CONTRIBUTING.md.
-#   2. Aggregates the prebuilt .node binaries into ortools/sat/node/prebuilds/.
-#   3. Runs `npm pack` to produce the npm tarball.
-#   4. Uploads the tarball as a build artifact and as a GitHub release asset.
+#   2. Aggregates the prebuilt .node + bundled runtime libs into
+#      ortools/sat/node/prebuilds/.
+#   3. Assembles four per-platform packages
+#      (@ortools-node/cp-sat-<plat>-<arch>) plus the slim main package
+#      (@ortools-node/cp-sat) — five tarballs total.
+#   4. Uploads the tarballs as a build artifact and as GitHub release assets.
 #   5. Publishes to npm via Trusted Publishing (OIDC), gated behind the
 #      `npm-publish` environment so a maintainer must approve the publish
-#      step before the package is pushed live. Pre-release versions are
+#      step before the packages are pushed live. Platform packages are
+#      published first so they're resolvable by the time the main
+#      package's optionalDependencies fire. Pre-release versions are
 #      tagged as `next` on npm.
 #
 # To cut a release:
-#   1. Bump the version in ortools/sat/node/package.json.
+#   1. Bump the version in ortools/sat/node/package.json (this also
+#      updates the optionalDependencies and the platform packages'
+#      version, which is read from package.json at pack time).
 #   2. Update ortools/sat/node/CHANGELOG.md.
 #   3. Commit, tag with `cp-sat-vX.Y.Z[-suffix]`, push the tag.
 #   4. Approve the publish step in the GitHub Actions UI.
@@ -107,13 +114,12 @@ jobs:
           path: ortools/sat/node/prebuilds/${{ matrix.triplet_dir }}/
 
   pack:
-    name: Pack tarball
+    name: Pack tarballs
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
-      tarball: ${{ steps.pack.outputs.tarball }}
       version: ${{ steps.pack.outputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -159,27 +165,51 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npm run build
 
-      - name: Pack
+      - name: Build platform packages
+        working-directory: ortools/sat/node
+        shell: bash
+        run: node scripts/build-platform-packages.mjs
+
+      - name: Pack main + platform tarballs
         id: pack
         working-directory: ortools/sat/node
         shell: bash
         run: |
           set -e
-          tarball=$(npm pack 2>/dev/null | tail -n1)
-          echo "tarball=ortools/sat/node/$tarball" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          mkdir -p _tarballs
+          # Main slim package (no prebuilds/, just dist/ + src/cpp/ + version.lds).
+          main_tarball=$(npm pack 2>/dev/null | tail -n1)
+          mv "$main_tarball" _tarballs/
+          # Platform packages.
+          for d in _platform-packages/*/; do
+            tar=$(cd "$d" && npm pack 2>/dev/null | tail -n1)
+            mv "$d/$tar" _tarballs/
+          done
+          ls -la _tarballs/
+          # Sanity: exactly 5 tarballs (1 main + 4 platforms) at one version.
+          count=$(ls _tarballs/*.tgz | wc -l)
+          if [[ "$count" != "5" ]]; then
+            echo "ERROR: expected 5 tarballs, got $count" >&2
+            exit 1
+          fi
+          version=$(node -p "require('./package.json').version")
+          for t in _tarballs/*.tgz; do
+            [[ "$t" == *"-$version.tgz" ]] || {
+              echo "ERROR: $t does not match version $version" >&2; exit 1; }
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Upload tarball artifact
+      - name: Upload tarballs artifact
         uses: actions/upload-artifact@v4
         with:
-          name: npm-tarball
-          path: ${{ steps.pack.outputs.tarball }}
+          name: npm-tarballs
+          path: ortools/sat/node/_tarballs/
 
       - name: Attach to GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/cp-sat-v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.pack.outputs.tarball }}
+          files: ortools/sat/node/_tarballs/*.tgz
           generate_release_notes: true
 
   publish:
@@ -206,10 +236,31 @@ jobs:
       - name: Upgrade npm
         run: npm install -g npm@latest
 
+      # We need scripts/smoke.mjs from the repo to drive the install
+      # smoke test. Checking out is cheaper than re-uploading the
+      # script as an artifact.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
-          name: npm-tarball
-          path: .
+          name: npm-tarballs
+          path: _tarballs
+
+      - name: Identify tarballs
+        id: tarballs
+        shell: bash
+        run: |
+          set -e
+          # Main tarball: ortools-node-cp-sat-<version>.tgz (no plat suffix).
+          # Platform tarballs: ortools-node-cp-sat-<plat>-<arch>-<version>.tgz.
+          main=$(ls _tarballs/ortools-node-cp-sat-*.tgz | grep -Ev 'cp-sat-(linux|darwin|win32)-')
+          echo "main=$main" >> "$GITHUB_OUTPUT"
+          # The publish runner is linux-x64, so that's the platform tarball
+          # we install + smoke-test against.
+          plat=$(ls _tarballs/ortools-node-cp-sat-linux-x64-*.tgz)
+          echo "plat=$plat" >> "$GITHUB_OUTPUT"
+          version=$(tar -xOf "$main" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Verify tarball loads
         shell: bash
@@ -219,34 +270,21 @@ jobs:
           cd /tmp/install-test
           npm init -y >/dev/null
           npm pkg set type=module
-          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/*.tgz
-          cat > smoke.mjs <<'EOF'
-          import { CpModel, CpSolver, CpSolverStatus } from '@ortools-node/cp-sat';
-          const m = new CpModel();
-          const x = m.newIntVar(0n, 10n, 'x');
-          const y = m.newIntVar(0n, 10n, 'y');
-          m.addEquality(x.add(y), 7);
-          m.maximize(x);
-          const s = new CpSolver();
-          const status = await s.solve(m);
-          if (status !== CpSolverStatus.OPTIMAL) {
-            console.error('expected OPTIMAL, got', status);
-            process.exit(1);
-          }
-          if (s.value(x) + s.value(y) !== 7n) {
-            console.error('expected x+y=7, got', s.value(x), s.value(y));
-            process.exit(1);
-          }
-          console.log('smoke OK: x =', s.value(x).toString(), 'y =', s.value(y).toString());
-          EOF
+          # Install main + matching platform tarball directly. The other
+          # 3 platform optionalDependencies aren't on disk; npm will warn
+          # and skip them, which is the same behaviour real users on
+          # mismatched OS/arch see.
+          npm install --no-audit --no-fund \
+            "$GITHUB_WORKSPACE/${{ steps.tarballs.outputs.main }}" \
+            "$GITHUB_WORKSPACE/${{ steps.tarballs.outputs.plat }}"
+          cp "$GITHUB_WORKSPACE/ortools/sat/node/scripts/smoke.mjs" smoke.mjs
           node smoke.mjs
 
       - name: Determine npm dist-tag
         id: dist-tag
         shell: bash
         run: |
-          version=$(tar -xOf "$GITHUB_WORKSPACE"/*.tgz package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
-          if [[ "$version" == *-* ]]; then
+          if [[ "${{ steps.tarballs.outputs.version }}" == *-* ]]; then
             echo "tag=next" >> "$GITHUB_OUTPUT"
           else
             echo "tag=latest" >> "$GITHUB_OUTPUT"
@@ -256,4 +294,14 @@ jobs:
         shell: bash
         run: |
           set -e
-          npm publish "$GITHUB_WORKSPACE"/*.tgz --access public --tag ${{ steps.dist-tag.outputs.tag }}
+          tag="${{ steps.dist-tag.outputs.tag }}"
+          # Publish platform packages first so the main package's
+          # optionalDependencies are immediately resolvable for any
+          # consumer that installs the main package right after publish.
+          for plat in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            tarball=$(ls _tarballs/ortools-node-cp-sat-${plat}-*.tgz)
+            echo "publishing $tarball"
+            npm publish "$tarball" --access public --tag "$tag"
+          done
+          echo "publishing ${{ steps.tarballs.outputs.main }}"
+          npm publish "${{ steps.tarballs.outputs.main }}" --access public --tag "$tag"
