@@ -1,6 +1,7 @@
 node_modules/
 dist/
 prebuilds/*/
+_platform-packages/
 build/
 .cache/
 *.log
