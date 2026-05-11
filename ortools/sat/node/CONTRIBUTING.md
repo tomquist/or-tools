@@ -141,8 +141,28 @@ host process is loading it, so no further config is needed on Windows.
 
 Tag the fork with `cp-sat-vX.Y.Z` to trigger
 [`.github/workflows/node_release.yml`](../../../.github/workflows/node_release.yml).
-The workflow runs the prebuild matrix, aggregates the binaries, runs
-`npm pack`, and (on manual approval) publishes to npm with provenance.
+The workflow:
+
+1. Builds the prebuild matrix (linux x64/arm64, darwin x64/arm64).
+2. Aggregates the prebuilt addons + bundled runtime libs into
+   `ortools/sat/node/prebuilds/<triplet>/`.
+3. Runs `node scripts/build-platform-packages.mjs` to assemble four
+   per-platform staging packages (`@ortools-node/cp-sat-<plat>-<arch>`).
+4. Runs `npm pack` against the slim main package and each platform
+   package — five tarballs total, all at the same version.
+5. After manual approval in the `npm-publish` environment, publishes
+   the four platform packages first (so the main package's
+   `optionalDependencies` are immediately resolvable), then the main
+   package, with provenance via Trusted Publishing (OIDC).
+
+Every PR also exercises the same packaging pipeline as a dry-run via
+[`.github/workflows/node_prebuild.yml`](../../../.github/workflows/node_prebuild.yml):
+each matrix runner packs main + its matching platform tarball, runs
+`scripts/smoke.mjs` against the install pair, and uploads the
+tarballs as `pr-tarballs-<triplet>` artifacts. An aggregate
+`pack-dry-run` job rehearses the full 5-tarball release pack on every
+PR and uploads it as `pr-tarballs-all`. So a packaging regression
+shows up in PR review, not at tag time.
 
 ## Troubleshooting
 

@@ -30,10 +30,19 @@ conventions (fluent algebra, explicit ESM, `bigint` for int64 values).
 npm install @ortools-node/cp-sat
 ```
 
-Requires Node.js 20+ (NAPI 9). Prebuilt binaries are shipped for
-`linux-x64` (glibc), `linux-arm64` (glibc), `darwin-x64`, `darwin-arm64`,
-and `win32-x64`. Alpine (musl) must build from source — see
-[`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Requires Node.js 20+ (NAPI 9). Native binaries ship as per-platform
+optional dependencies and are installed automatically by npm/yarn/pnpm
+on supported platforms — only the matching one is downloaded:
+
+- `@ortools-node/cp-sat-linux-x64` (glibc, ~69 MB)
+- `@ortools-node/cp-sat-linux-arm64` (glibc, ~63 MB)
+- `@ortools-node/cp-sat-darwin-x64` (~89 MB)
+- `@ortools-node/cp-sat-darwin-arm64` (~91 MB)
+
+Alpine (musl) and Windows must build from source — see
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). Installing with `--no-optional`
+will skip the native package; the loader will then fall back to a
+local build at `<package-root>/prebuilds/<triplet>/` if present.
 
 ## Quick start
 

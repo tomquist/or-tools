@@ -2,6 +2,30 @@
 
 All notable changes to @ortools-node/cp-sat are documented in this file.
 
+## 9.15.0-node.0-rc.2 (2026-05-11)
+
+### Changed
+
+- Repackaged as a slim main package + four per-platform optional
+  dependencies, mirroring the layout used by `esbuild`, `@swc/core`,
+  and `sharp`. Installing `@ortools-node/cp-sat` now pulls only the
+  ~1 MB JS layer plus the matching one of:
+  - `@ortools-node/cp-sat-linux-x64` (~69 MB, glibc)
+  - `@ortools-node/cp-sat-linux-arm64` (~63 MB, glibc)
+  - `@ortools-node/cp-sat-darwin-x64` (~89 MB)
+  - `@ortools-node/cp-sat-darwin-arm64` (~91 MB)
+
+  Previous releases shipped all four prebuilds in a single ~310 MB
+  tarball. Public API is byte-for-byte unchanged; this is a
+  transparent install-time size reduction.
+- Removed the `node-gyp-build` runtime dependency. The native loader
+  now `require.resolve()`s the matching platform package directly,
+  with a fallback to the in-tree `prebuilds/<triplet>/` layout for
+  build-from-source consumers and in-repo development.
+- Linux platform packages declare `"libc": ["glibc"]` so npm 10+
+  refuses to install them on Alpine/musl, where the loader's
+  fallback message will steer users to build-from-source.
+
 ## 9.15.0-node.0-rc.1 (2026-05-08)
 
 ### Fixed

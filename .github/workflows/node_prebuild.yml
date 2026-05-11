@@ -143,21 +143,28 @@ jobs:
           set -e
           main="${{ steps.pack.outputs.main }}"
           plat="${{ steps.pack.outputs.plat }}"
+          # Materialize listings once. GitHub Actions bash runs with
+          # `set -eo pipefail`, so piping `tar -tf` directly into `grep -q`
+          # causes a SIGPIPE on tar that fails the pipeline; dumping to a
+          # file sidesteps that and is faster too.
+          tar -tf "$main" > /tmp/main_files.txt
+          tar -tf "$plat" > /tmp/plat_files.txt
           # Main tarball must NOT contain any prebuilds/ — that's the whole
           # point of the slim main package.
-          if tar -tf "$main" | grep -q '^package/prebuilds/'; then
+          if grep -q '^package/prebuilds/' /tmp/main_files.txt; then
             echo "ERROR: main tarball contains prebuilds/" >&2
-            tar -tf "$main" | grep '^package/prebuilds/' >&2
+            grep '^package/prebuilds/' /tmp/main_files.txt >&2
             exit 1
           fi
           # Required main-package payload.
           for required in package/dist/index.js package/src/cpp/binding.cc package/version.lds; do
-            tar -tf "$main" | grep -qx "$required" || {
+            grep -qxF "$required" /tmp/main_files.txt || {
               echo "ERROR: main tarball missing $required" >&2; exit 1; }
           done
           # Main must declare optionalDependencies for all 4 platform packages.
-          tar -xOf "$main" package/package.json | node -e "
-            const p = JSON.parse(require('fs').readFileSync(0,'utf8'));
+          tar -xOf "$main" package/package.json > /tmp/main_pjson.json
+          node -e "
+            const p = JSON.parse(require('fs').readFileSync('/tmp/main_pjson.json','utf8'));
             const want = ['linux-x64','linux-arm64','darwin-x64','darwin-arm64'];
             const errs = [];
             for (const w of want) {
@@ -169,10 +176,11 @@ jobs:
             if (errs.length) { console.error(errs.join('\n')); process.exit(1); }
           "
           # Platform tarball must contain cp-sat.node and a coherent package.json.
-          tar -tf "$plat" | grep -qx 'package/cp-sat.node' || {
+          grep -qxF 'package/cp-sat.node' /tmp/plat_files.txt || {
             echo "ERROR: platform tarball missing cp-sat.node" >&2; exit 1; }
-          TRIPLET="${{ matrix.triplet_dir }}" tar -xOf "$plat" package/package.json | node -e "
-            const p = JSON.parse(require('fs').readFileSync(0,'utf8'));
+          tar -xOf "$plat" package/package.json > /tmp/plat_pjson.json
+          TRIPLET="${{ matrix.triplet_dir }}" node -e "
+            const p = JSON.parse(require('fs').readFileSync('/tmp/plat_pjson.json','utf8'));
             const main = JSON.parse(require('fs').readFileSync('package.json','utf8'));
             const triplet = process.env.TRIPLET;
             const expectName = '@ortools-node/cp-sat-' + triplet;
