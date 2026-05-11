@@ -40,6 +40,18 @@ jobs:
           - os: ubuntu-22.04-arm
             triplet_dir: linux-arm64
             triplet_file: node.napi.glibc.node
+          # musl entries run inside node:20-alpine. The image ships
+          # Node 20 + libstdc++; we apk-install the rest of the C++
+          # toolchain in the first step. ubuntu-22.04-arm is real ARM64
+          # hardware so the linux/arm64 Alpine variant runs natively.
+          - os: ubuntu-22.04
+            triplet_dir: linux-x64-musl
+            triplet_file: node.napi.musl.node
+            container: node:20-alpine
+          - os: ubuntu-22.04-arm
+            triplet_dir: linux-arm64-musl
+            triplet_file: node.napi.musl.node
+            container: node:20-alpine
           - os: macos-15-intel
             triplet_dir: darwin-x64
             triplet_file: node.napi.node
@@ -47,13 +59,35 @@ jobs:
             triplet_dir: darwin-arm64
             triplet_file: node.napi.node
     runs-on: ${{ matrix.os }}
+    # Empty string when matrix.container is undefined → no container.
+    container: ${{ matrix.container }}
     steps:
+      # actions/checkout's JS fallback works without git on PATH, which
+      # matters because node:20-alpine doesn't bundle git. Subsequent
+      # apk add later in the job pulls in everything else we need.
       - uses: actions/checkout@v4
+
+      # node:20-alpine already provides Node 20; setup-node would try
+      # to install glibc Node and fail. Skip it inside the container.
       - uses: actions/setup-node@v4
+        if: matrix.container == ''
         with:
           node-version: "20"
 
+      - name: Install build deps (Alpine)
+        if: matrix.container != ''
+        shell: sh
+        run: |
+          set -eu
+          apk add --no-cache cmake ninja build-base linux-headers \
+            git perl python3 bash
+          # libstdc++ is preinstalled in node:20-alpine; the bundle
+          # script in cmake/node.cmake picks it up from /usr/lib and
+          # ships it inside the prebuild dir so consumers don't need
+          # `apk add libstdc++` themselves.
+
       - name: Install Ninja
+        if: matrix.container == ''
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "macOS" ]]; then brew install ninja; fi
@@ -281,10 +315,12 @@ jobs:
             mv "$d/$tar" _tarballs/
           done
           ls -la _tarballs/
-          # Exactly 5 tarballs (1 main + 4 platforms) at one version.
+          # Exactly 7 tarballs (1 main + 6 platforms: linux-x64,
+          # linux-arm64, linux-x64-musl, linux-arm64-musl, darwin-x64,
+          # darwin-arm64) at one version.
           count=$(ls _tarballs/*.tgz | wc -l)
-          if [[ "$count" != "5" ]]; then
-            echo "ERROR: expected 5 tarballs, got $count" >&2
+          if [[ "$count" != "7" ]]; then
+            echo "ERROR: expected 7 tarballs, got $count" >&2
             exit 1
           fi
           version=$(node -p "require('./package.json').version")
