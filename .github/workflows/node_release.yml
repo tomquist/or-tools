@@ -298,12 +298,15 @@ jobs:
         run: |
           set -e
           # Main tarball: ortools-node-cp-sat-<version>.tgz (no plat suffix).
-          # Platform tarballs: ortools-node-cp-sat-<plat>-<arch>-<version>.tgz.
+          # Platform tarballs: ortools-node-cp-sat-<plat>-<arch>[-musl]-<version>.tgz.
           main=$(ls _tarballs/ortools-node-cp-sat-*.tgz | grep -Ev 'cp-sat-(linux|darwin|win32)-')
           echo "main=$main" >> "$GITHUB_OUTPUT"
-          # The publish runner is linux-x64, so that's the platform tarball
-          # we install + smoke-test against.
-          plat=$(ls _tarballs/ortools-node-cp-sat-linux-x64-*.tgz)
+          # The publish runner is linux-x64 (glibc), so that's the platform
+          # tarball we install + smoke-test against. The `[0-9]` glob
+          # constraint anchors on the version digit so this doesn't also
+          # pick up cp-sat-linux-x64-musl-<version>.tgz, which would write
+          # a multi-line value to $GITHUB_OUTPUT and break the step.
+          plat=$(ls _tarballs/ortools-node-cp-sat-linux-x64-[0-9]*.tgz)
           echo "plat=$plat" >> "$GITHUB_OUTPUT"
           version=$(tar -xOf "$main" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -352,7 +355,11 @@ jobs:
           # optionalDependencies are immediately resolvable for any
           # consumer that installs the main package right after publish.
           for plat in linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl darwin-x64 darwin-arm64; do
-            tarball=$(ls _tarballs/ortools-node-cp-sat-${plat}-*.tgz)
+            # Anchor on the version digit ([0-9]) so `linux-x64-*` doesn't
+            # also match the `linux-x64-musl-` tarball. Without the anchor
+            # the loop's first iteration would resolve `tarball` to two
+            # filenames and `npm publish` would error.
+            tarball=$(ls _tarballs/ortools-node-cp-sat-${plat}-[0-9]*.tgz)
             echo "==> publishing $tarball (tag=$tag)"
             npm publish "$tarball" --access public --tag "$tag" --provenance
           done
