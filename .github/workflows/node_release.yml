@@ -260,10 +260,19 @@ jobs:
       contents: read
       id-token: write   # OIDC for npm Trusted Publishing
     steps:
+      # Note: `registry-url:` is intentionally NOT set here. With it,
+      # actions/setup-node@v4 writes an `.npmrc` containing
+      #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+      # and defaults NODE_AUTH_TOKEN to the placeholder
+      # `XXXXX-XXXXX-XXXXX-XXXXX`. `npm publish` then sends that bogus
+      # bearer token instead of falling back to OIDC, and the registry
+      # responds with 404 ("not in this registry") — npm's standard
+      # message for an unauthorized publish to a scope/name. Omitting
+      # registry-url leaves no `_authToken` in the npm config, which
+      # is what npm 11.5.1+'s Trusted Publishing flow requires.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
 
       # Trusted Publishing needs npm >= 11.5.1; Node 22 ships with npm 10.x
       - name: Upgrade npm
@@ -328,13 +337,20 @@ jobs:
         run: |
           set -e
           tag="${{ steps.dist-tag.outputs.tag }}"
-          # Publish platform packages first so the main package's
+          # `--provenance` opts in to npm provenance attestations, which
+          # are signed by the OIDC token's issuer (Sigstore) and bind
+          # the published tarball to this exact workflow run. Required
+          # for the Trusted Publishing-issued tokens to be honored on
+          # newer npm versions and visible as the green "Provenance"
+          # badge on the npmjs.com package page.
+          #
+          # Platform packages are published first so the main package's
           # optionalDependencies are immediately resolvable for any
           # consumer that installs the main package right after publish.
           for plat in linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl darwin-x64 darwin-arm64; do
             tarball=$(ls _tarballs/ortools-node-cp-sat-${plat}-*.tgz)
-            echo "publishing $tarball"
-            npm publish "$tarball" --access public --tag "$tag"
+            echo "==> publishing $tarball (tag=$tag)"
+            npm publish "$tarball" --access public --tag "$tag" --provenance
           done
-          echo "publishing ${{ steps.tarballs.outputs.main }}"
-          npm publish "${{ steps.tarballs.outputs.main }}" --access public --tag "$tag"
+          echo "==> publishing ${{ steps.tarballs.outputs.main }} (tag=$tag)"
+          npm publish "${{ steps.tarballs.outputs.main }}" --access public --tag "$tag" --provenance
