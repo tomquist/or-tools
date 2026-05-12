@@ -260,23 +260,27 @@ jobs:
       contents: read
       id-token: write   # OIDC for npm Trusted Publishing
     steps:
-      # Note: `registry-url:` is intentionally NOT set here. With it,
-      # actions/setup-node@v4 writes an `.npmrc` containing
-      #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
-      # and defaults NODE_AUTH_TOKEN to the placeholder
-      # `XXXXX-XXXXX-XXXXX-XXXXX`. `npm publish` then sends that bogus
-      # bearer token instead of falling back to OIDC, and the registry
-      # responds with 404 ("not in this registry") — npm's standard
-      # message for an unauthorized publish to a scope/name. Omitting
-      # registry-url leaves no `_authToken` in the npm config, which
-      # is what npm 11.5.1+'s Trusted Publishing flow requires.
+      # Notes:
+      #   1. `registry-url:` is intentionally NOT set. With it, setup-node
+      #      writes an .npmrc containing
+      #         //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+      #      and defaults NODE_AUTH_TOKEN to 'XXXXX-XXXXX-XXXXX-XXXXX'.
+      #      npm publish then sends that bogus bearer token instead of
+      #      falling back to OIDC, and the registry rejects with a 404
+      #      ("not in this registry") — npm's standard masking for
+      #      unauthorized publishes. Omitting registry-url leaves no
+      #      _authToken in the npm config, which is what npm 11.5.1+'s
+      #      Trusted Publishing flow requires.
+      #   2. Node 24 is used because it ships with npm 11.x out of the
+      #      box, satisfying the Trusted Publishing minimum. We used to
+      #      run Node 22 + 'npm install -g npm@latest', but npm's
+      #      self-upgrade has a known race where the in-place replace
+      #      mid-install can corrupt the just-installed npm
+      #      (MODULE_NOT_FOUND on @npmcli/arborist's deps). Skipping the
+      #      upgrade step removes the failure mode entirely.
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-
-      # Trusted Publishing needs npm >= 11.5.1; Node 22 ships with npm 10.x
-      - name: Upgrade npm
-        run: npm install -g npm@latest
+          node-version: "24"
 
       # We need scripts/smoke.mjs from the repo to drive the install
       # smoke test. Checking out is cheaper than re-uploading the
