@@ -94,7 +94,13 @@ d('CpSolver — native', () => {
       }
     }
     const solver = new CpSolver();
+    // enumerate_all_solutions requires single-threaded search:
+    // CP-SAT's worker portfolio doesn't reliably surface intermediate
+    // solutions to the callback when parallelism is on, which made
+    // this test flaky on the macos-15-intel runner. Pinning workers
+    // to 1 makes enumeration deterministic.
     solver.parameters.enumerateAllSolutions = true;
+    solver.parameters.numSearchWorkers = 1;
     await solver.solve(m, { callback: new CB() });
     expect(seenValues.length).toBeGreaterThan(0);
     for (const v of seenValues) {
