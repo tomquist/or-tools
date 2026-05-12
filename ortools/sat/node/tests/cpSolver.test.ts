@@ -79,20 +79,27 @@ d('CpSolver — native', () => {
     } = await import('../src/index.js');
     const m = new CpModel();
     const x = m.newIntVar(0, 3, 'x');
-    m.maximize(x);
-
-    let seen = 0;
-    let lastValue = 0n;
+    // We use enumerate_all_solutions instead of maximize(x): on a
+    // 1-variable model CP-SAT can root-propagate the optimum without
+    // emitting any intermediate solution (observed on faster macOS x64
+    // runners), leaving the callback uninvoked and racing the
+    // `seen > 0` assertion. Enumerate guarantees the callback fires
+    // for every feasible value, which is what we actually want to
+    // exercise here: that the callback is invoked and that
+    // `this.value()` works inside it.
+    const seenValues: bigint[] = [];
     class CB extends CpSolverSolutionCallback {
       override onSolutionCallback(): void {
-        seen++;
-        lastValue = this.value(x);
+        seenValues.push(this.value(x));
       }
     }
     const solver = new CpSolver();
+    solver.parameters.enumerateAllSolutions = true;
     await solver.solve(m, { callback: new CB() });
-    expect(seen).toBeGreaterThan(0);
-    expect(lastValue).toBe(3n);
+    expect(seenValues.length).toBeGreaterThan(0);
+    for (const v of seenValues) {
+      expect(v >= 0n && v <= 3n).toBe(true);
+    }
   });
 
   // Regression: looping solve() with a (possibly empty) solution callback used

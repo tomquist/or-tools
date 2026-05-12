@@ -71,6 +71,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
     steps:
+      # GH Actions refuses to run JS-based actions inside an Alpine
+      # container on ARM64 hosts. laverdet/alpine-arm64 ships a tweaked
+      # gcompat + clears the Alpine marker so subsequent JS actions
+      # work. No-op on non-arm64 architectures.
+      - name: Alpine ARM64 shim
+        if: matrix.container != ''
+        uses: laverdet/alpine-arm64@v1
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4

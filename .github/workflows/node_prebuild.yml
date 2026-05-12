@@ -62,6 +62,17 @@ jobs:
     # Empty string when matrix.container is undefined → no container.
     container: ${{ matrix.container }}
     steps:
+      # GitHub Actions refuses to run JS-based actions inside an Alpine
+      # container on ARM64 hosts ("JavaScript Actions in Alpine
+      # containers are only supported on x64 Linux runners"). The
+      # laverdet/alpine-arm64 action ships a tweaked gcompat shim and
+      # clears the Alpine marker in /etc/os-release so subsequent JS
+      # actions (checkout, setup-node, upload-artifact) load correctly.
+      # No-op on non-arm64 architectures and on non-Alpine containers.
+      - name: Alpine ARM64 shim
+        if: matrix.container != ''
+        uses: laverdet/alpine-arm64@v1
+
       # actions/checkout's JS fallback works without git on PATH, which
       # matters because node:20-alpine doesn't bundle git. Subsequent
       # apk add later in the job pulls in everything else we need.
@@ -165,18 +176,23 @@ jobs:
           plat_tarball=$(cd _platform-packages/cp-sat-${{ matrix.triplet_dir }} && npm pack 2>/dev/null | tail -n1)
           mv "_platform-packages/cp-sat-${{ matrix.triplet_dir }}/$plat_tarball" _tarballs/
           ls -la _tarballs/
+          # Outputs are GITHUB_WORKSPACE-relative so downstream steps with
+          # different working-directory can reach them via $GITHUB_WORKSPACE.
           main=$(ls _tarballs/ortools-node-cp-sat-*.tgz | grep -Ev 'cp-sat-(linux|darwin|win32)-')
           plat=$(ls _tarballs/ortools-node-cp-sat-${{ matrix.triplet_dir }}-*.tgz)
-          echo "main=$main" >> "$GITHUB_OUTPUT"
-          echo "plat=$plat" >> "$GITHUB_OUTPUT"
+          echo "main=ortools/sat/node/$main" >> "$GITHUB_OUTPUT"
+          echo "plat=ortools/sat/node/$plat" >> "$GITHUB_OUTPUT"
 
       - name: Verify tarball contents
         working-directory: ortools/sat/node
         shell: bash
         run: |
           set -e
-          main="${{ steps.pack.outputs.main }}"
-          plat="${{ steps.pack.outputs.plat }}"
+          # The pack step's outputs are GITHUB_WORKSPACE-relative so they
+          # round-trip through other working-directory steps; resolve them
+          # against $GITHUB_WORKSPACE here.
+          main="$GITHUB_WORKSPACE/${{ steps.pack.outputs.main }}"
+          plat="$GITHUB_WORKSPACE/${{ steps.pack.outputs.plat }}"
           # Materialize listings once. GitHub Actions bash runs with
           # `set -eo pipefail`, so piping `tar -tf` directly into `grep -q`
           # causes a SIGPIPE on tar that fails the pipeline; dumping to a
@@ -195,11 +211,15 @@ jobs:
             grep -qxF "$required" /tmp/main_files.txt || {
               echo "ERROR: main tarball missing $required" >&2; exit 1; }
           done
-          # Main must declare optionalDependencies for all 4 platform packages.
+          # Main must declare optionalDependencies for all 6 platform packages.
           tar -xOf "$main" package/package.json > /tmp/main_pjson.json
           node -e "
             const p = JSON.parse(require('fs').readFileSync('/tmp/main_pjson.json','utf8'));
-            const want = ['linux-x64','linux-arm64','darwin-x64','darwin-arm64'];
+            const want = [
+              'linux-x64', 'linux-arm64',
+              'linux-x64-musl', 'linux-arm64-musl',
+              'darwin-x64', 'darwin-arm64',
+            ];
             const errs = [];
             for (const w of want) {
               const k = '@ortools-node/cp-sat-' + w;
@@ -224,8 +244,10 @@ jobs:
             if (p.main !== './cp-sat.node') errs.push('main mismatch: ' + p.main);
             if (!Array.isArray(p.os) || p.os.length !== 1) errs.push('os mismatch');
             if (!Array.isArray(p.cpu) || p.cpu.length !== 1) errs.push('cpu mismatch');
-            if (triplet.startsWith('linux-')) {
-              if (!Array.isArray(p.libc) || !p.libc.includes('glibc')) errs.push('linux libc must be [glibc]');
+            if (triplet.endsWith('-musl')) {
+              if (!Array.isArray(p.libc) || !p.libc.includes('musl')) errs.push('musl package libc must be [musl]');
+            } else if (triplet.startsWith('linux-')) {
+              if (!Array.isArray(p.libc) || !p.libc.includes('glibc')) errs.push('glibc Linux package libc must be [glibc]');
             } else {
               if (p.libc) errs.push('non-linux package should not declare libc');
             }
