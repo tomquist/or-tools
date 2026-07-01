@@ -80,33 +80,30 @@ d('CpSolver — native', () => {
       CpSolverSolutionCallback,
     } = await import('../src/index.js');
     const m = new CpModel();
-    const x = m.newIntVar(0, 3, 'x');
-    // We use enumerate_all_solutions instead of maximize(x): on a
-    // 1-variable model CP-SAT can root-propagate the optimum without
-    // emitting any intermediate solution (observed on faster macOS x64
-    // runners), leaving the callback uninvoked and racing the
-    // `seen > 0` assertion. Enumerate guarantees the callback fires
-    // for every feasible value, which is what we actually want to
-    // exercise here: that the callback is invoked and that
-    // `this.value()` works inside it.
+    // Mirror the reference binding's own callback test
+    // (ortools/sat/python/cp_model_test.py::test_search_for_all_solutions):
+    // a constrained two-variable model, x + y == 6 with x,y in [0,5]. This
+    // forces the solver to actually enumerate during search (5 solutions),
+    // which reliably invokes the callback. A single free variable is instead
+    // resolved in presolve/root and does NOT reliably emit per-solution
+    // callbacks, which was the real cause of the macOS CI flake.
+    const x = m.newIntVar(0, 5, 'x');
+    const y = m.newIntVar(0, 5, 'y');
+    m.add(x.add(y).equalTo(6));
     const seenValues: bigint[] = [];
     class CB extends CpSolverSolutionCallback {
       override onSolutionCallback(): void {
+        // this.value(...) reads the thread-local active context.
         seenValues.push(this.value(x));
       }
     }
     const solver = new CpSolver();
-    // enumerate_all_solutions requires single-threaded search:
-    // CP-SAT's worker portfolio doesn't reliably surface intermediate
-    // solutions to the callback when parallelism is on, which made
-    // this test flaky on the macos-15-intel runner. Pinning workers
-    // to 1 makes enumeration deterministic.
     solver.parameters.enumerateAllSolutions = true;
-    solver.parameters.numSearchWorkers = 1;
     await solver.solve(m, { callback: new CB() });
-    expect(seenValues.length).toBeGreaterThan(0);
+    // Exactly the five feasible x values (x + y == 6, y in [0,5] => x in [1,5]).
+    expect(seenValues.length).toBe(5);
     for (const v of seenValues) {
-      expect(v >= 0n && v <= 3n).toBe(true);
+      expect(v >= 1n && v <= 5n).toBe(true);
     }
   });
 
@@ -117,7 +114,10 @@ d('CpSolver — native', () => {
       CpSolverSolutionCallback,
     } = await import('../src/index.js');
     const m = new CpModel();
-    const x = m.newIntVar(0, 4, 'x');
+    // Same reliable enumeration model as above (x + y == 6 => 5 solutions).
+    const x = m.newIntVar(0, 5, 'x');
+    const y = m.newIntVar(0, 5, 'y');
+    m.add(x.add(y).equalTo(6));
     const seen: bigint[] = [];
     class CB extends CpSolverSolutionCallback {
       override onSolutionCallback(ctx: SolutionContext): void {
@@ -125,18 +125,17 @@ d('CpSolver — native', () => {
       }
     }
     const solver = new CpSolver();
-    // Single-threaded enumeration yields all 5 feasible values exactly once.
     solver.parameters.enumerateAllSolutions = true;
-    solver.parameters.numSearchWorkers = 1;
     await solver.solve(m, { callback: new CB() });
     // Regression guard for the solution-dispatch drain: every solution found
     // during the solve must be delivered to the callback *before* the promise
-    // resolves. Before drain-before-resolve, a fast solve could resolve while
+    // resolves. Without drain-before-resolve a fast solve could resolve while
     // callbacks were still queued on the JS thread, dropping the tail (and
-    // sometimes the whole batch) — matching the synchronous
-    // all-callbacks-before-return contract of the Python/Java bindings.
+    // sometimes the whole batch). All five must be present here, matching the
+    // synchronous all-callbacks-before-return contract of the Python/Java
+    // bindings.
     const sorted = [...seen].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    expect(sorted).toEqual([0n, 1n, 2n, 3n, 4n]);
+    expect(sorted).toEqual([1n, 2n, 3n, 4n, 5n]);
   });
 
   // Regression: looping solve() with a (possibly empty) solution callback used
