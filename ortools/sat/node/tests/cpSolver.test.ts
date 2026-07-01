@@ -248,24 +248,34 @@ d('CpSolver — native', () => {
     expect(lines.length).toBeGreaterThan(0);
   });
 
-  it('bestBoundCallback receives finite bound updates during optimization', async () => {
-    const { CpModel, CpSolver, CpSolverStatus, LinearExpr } = await import(
-      '../src/index.js'
-    );
+  it('bestBoundCallback receives the objective bound', async () => {
+    const { CpModel, CpSolver, CpSolverStatus } = await import('../src/index.js');
+    // Mirror the reference binding's best-bound test
+    // (ortools/sat/python/cp_model_test.py::test_best_bound_callback): a small
+    // boolean model with a float objective, num_workers=1 and
+    // linearization_level=2 so the LP relaxation produces a bound the callback
+    // reports. The optimal bound is 2.6.
     const m = new CpModel();
-    const xs = [];
-    for (let i = 0; i < 15; i++) xs.push(m.newIntVar(0, 100, `x${i}`));
-    const total = LinearExpr.sum(xs);
-    m.addLessOrEqual(total, 500);
-    m.maximize(total);
-    const bounds: number[] = [];
+    const x0 = m.newBoolVar('x0');
+    const x1 = m.newBoolVar('x1');
+    const x2 = m.newBoolVar('x2');
+    const x3 = m.newBoolVar('x3');
+    m.addBoolOr([x0, x1, x2, x3]);
+    m.minimizeFloat(
+      x0.mul(3).add(x1.mul(2)).add(x2.mul(4)).add(x3.mul(5)).add(0.6),
+    );
+    let lastBound = 0;
+    let calls = 0;
     const solver = new CpSolver();
-    solver.parameters.numSearchWorkers = 1;
-    solver.parameters.maxTimeInSeconds = 10;
-    solver.bestBoundCallback = (b) => bounds.push(b);
+    solver.parameters.numWorkers = 1;
+    solver.parameters.linearizationLevel = 2;
+    solver.bestBoundCallback = (b) => {
+      lastBound = b;
+      calls++;
+    };
     const status = await solver.solve(m);
     expect(status).toBe(CpSolverStatus.OPTIMAL);
-    expect(bounds.length).toBeGreaterThan(0);
-    for (const b of bounds) expect(Number.isFinite(b)).toBe(true);
+    expect(calls).toBeGreaterThan(0);
+    expect(lastBound).toBeCloseTo(2.6, 6);
   });
 });
