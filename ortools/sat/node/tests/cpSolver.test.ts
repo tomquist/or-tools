@@ -113,29 +113,35 @@ d('CpSolver — native', () => {
       CpSolver,
       CpSolverSolutionCallback,
     } = await import('../src/index.js');
-    const m = new CpModel();
-    // Same reliable enumeration model as above (x + y == 6 => 5 solutions).
-    const x = m.newIntVar(0, 5, 'x');
-    const y = m.newIntVar(0, 5, 'y');
-    m.add(x.add(y).equalTo(6));
-    const seen: bigint[] = [];
-    class CB extends CpSolverSolutionCallback {
-      override onSolutionCallback(ctx: SolutionContext): void {
-        seen.push(ctx.value(x));
+    // TEMP DIAGNOSTIC: loop the enumerate solve many times and log how many
+    // solutions each attempt delivers, so one CI run reveals the flake
+    // distribution per runner (correlate with the C++ [ortools-diag] trace).
+    const counts: number[] = [];
+    for (let i = 0; i < 25; i++) {
+      const m = new CpModel();
+      const x = m.newIntVar(0, 5, 'x');
+      const y = m.newIntVar(0, 5, 'y');
+      m.add(x.add(y).equalTo(6));
+      const seen: bigint[] = [];
+      class CB extends CpSolverSolutionCallback {
+        override onSolutionCallback(ctx: SolutionContext): void {
+          seen.push(ctx.value(x));
+        }
       }
+      const solver = new CpSolver();
+      solver.parameters.enumerateAllSolutions = true;
+      const status = await solver.solve(m, { callback: new CB() });
+      counts.push(seen.length);
+      // eslint-disable-next-line no-console
+      console.error(
+        `[diag-js] iter=${i} status=${status} delivered=${seen.length}`,
+      );
     }
-    const solver = new CpSolver();
-    solver.parameters.enumerateAllSolutions = true;
-    await solver.solve(m, { callback: new CB() });
-    // Regression guard for the solution-dispatch drain: every solution found
-    // during the solve must be delivered to the callback *before* the promise
-    // resolves. Without drain-before-resolve a fast solve could resolve while
-    // callbacks were still queued on the JS thread, dropping the tail (and
-    // sometimes the whole batch). All five must be present here, matching the
-    // synchronous all-callbacks-before-return contract of the Python/Java
-    // bindings.
-    const sorted = [...seen].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    expect(sorted).toEqual([1n, 2n, 3n, 4n, 5n]);
+    // eslint-disable-next-line no-console
+    console.error(`[diag-js] counts=${JSON.stringify(counts)}`);
+    // Assertion runs AFTER the logs above, so the distribution is captured
+    // even when this fails.
+    expect(counts.every((c) => c === 5)).toBe(true);
   });
 
   // Regression: looping solve() with a (possibly empty) solution callback used
