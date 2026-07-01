@@ -34,14 +34,13 @@ namespace operations_research::sat::node_binding {
 // Callback-dispatch tracker
 // ----------------------------------------------------------------------------
 //
-// Counts async callback payloads (solution + best-bound) that have been
+// Counts async callback payloads (solution, best-bound, and log) that have been
 // enqueued to the JS thread but not yet dispatched. The solve worker thread
 // waits on this (via WaitForCallbackDispatchDrain) so that Solve()'s promise
-// resolves only after every solution and best-bound update has been delivered
-// to the user's callback -- matching the synchronous "all callbacks fire before
-// solve() returns" contract of the Python/Java/C#/Go bindings, without making
-// the JS solve() itself blocking. (Log lines stay best-effort NonBlockingCall;
-// they are not asserted on and may drop under load, as in other bindings.)
+// resolves only after every one has been delivered to the user's callback --
+// matching the synchronous "all callbacks fire before solve() returns" contract
+// of the Python/Java/C#/Go bindings, without making the JS solve() itself
+// blocking.
 struct CallbackDispatchTracker {
   std::mutex mu;
   std::condition_variable cv;
@@ -478,17 +477,29 @@ Napi::Value SolveWrapperJs::AddLogCallback(const Napi::CallbackInfo& info) {
   }
   // Capture by value: TSFN is reference-counted, safe to move into the
   // lambda. The lambda lives in the SolverLogger; teardown happens when
-  // SolveWrapper is destroyed in Cleanup().
-  wrapper_->AddLogCallback([tsfn](const std::string& message) {
+  // SolveWrapper is destroyed in Cleanup(). Route through the dispatch tracker
+  // (like solution/best-bound) so log lines are delivered before solve()
+  // resolves, matching the reference bindings' synchronous logging rather than
+  // dropping the tail on a fast solve.
+  auto tracker = dispatch_tracker_;
+  wrapper_->AddLogCallback([tsfn, tracker](const std::string& message) {
     std::string* copy = new std::string(message);
+    if (tracker) tracker->Begin();
     auto status = tsfn.NonBlockingCall(
-        copy, [](Napi::Env env, Napi::Function jsfn, std::string* msg) {
+        copy, [tracker](Napi::Env env, Napi::Function jsfn, std::string* msg) {
           std::unique_ptr<std::string> owned(msg);
+          struct DrainGuard {
+            std::shared_ptr<CallbackDispatchTracker> t;
+            ~DrainGuard() {
+              if (t) t->End();
+            }
+          } drain_guard{tracker};
           if (env == nullptr) return;
           jsfn.Call({Napi::String::New(env, *owned)});
         });
     if (status != napi_ok) {
       delete copy;
+      if (tracker) tracker->End();
     }
   });
   return env.Undefined();

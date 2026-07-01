@@ -46,8 +46,8 @@ class SolveWrapperJs : public Napi::ObjectWrap<SolveWrapperJs> {
   void ReleaseCallbackTsfns();
   /**
    * Blocks the calling (solve worker) thread until every async callback
-   * (solution + best-bound) queued during the solve has been dispatched on the
-   * JS thread. This lets Solve() resolve only after all of them have been
+   * (solution, best-bound, and log) queued during the solve has been dispatched
+   * on the JS thread. This lets Solve() resolve only after all of them have been
    * delivered, matching the "all callbacks fire before solve returns" contract
    * of the Python/Java/C#/Go bindings.
    */
