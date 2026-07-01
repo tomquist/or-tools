@@ -110,6 +110,35 @@ d('CpSolver — native', () => {
     }
   });
 
+  it('delivers every enumerated solution before solve() resolves', async () => {
+    const {
+      CpModel,
+      CpSolver,
+      CpSolverSolutionCallback,
+    } = await import('../src/index.js');
+    const m = new CpModel();
+    const x = m.newIntVar(0, 4, 'x');
+    const seen: bigint[] = [];
+    class CB extends CpSolverSolutionCallback {
+      override onSolutionCallback(ctx: SolutionContext): void {
+        seen.push(ctx.value(x));
+      }
+    }
+    const solver = new CpSolver();
+    // Single-threaded enumeration yields all 5 feasible values exactly once.
+    solver.parameters.enumerateAllSolutions = true;
+    solver.parameters.numSearchWorkers = 1;
+    await solver.solve(m, { callback: new CB() });
+    // Regression guard for the solution-dispatch drain: every solution found
+    // during the solve must be delivered to the callback *before* the promise
+    // resolves. Before drain-before-resolve, a fast solve could resolve while
+    // callbacks were still queued on the JS thread, dropping the tail (and
+    // sometimes the whole batch) — matching the synchronous
+    // all-callbacks-before-return contract of the Python/Java bindings.
+    const sorted = [...seen].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    expect(sorted).toEqual([0n, 1n, 2n, 3n, 4n]);
+  });
+
   // Regression: looping solve() with a (possibly empty) solution callback used
   // to segfault ~30-50% of the time at process teardown because the
   // SolutionBridge's TSFN was Unref'd and could outlive the bridge object,
