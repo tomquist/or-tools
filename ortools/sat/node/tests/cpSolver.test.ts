@@ -113,35 +113,40 @@ d('CpSolver — native', () => {
       CpSolver,
       CpSolverSolutionCallback,
     } = await import('../src/index.js');
-    // TEMP DIAGNOSTIC: loop the enumerate solve many times and log how many
-    // solutions each attempt delivers, so one CI run reveals the flake
-    // distribution per runner (correlate with the C++ [ortools-diag] trace).
-    const counts: number[] = [];
-    for (let i = 0; i < 25; i++) {
-      const m = new CpModel();
-      const x = m.newIntVar(0, 5, 'x');
-      const y = m.newIntVar(0, 5, 'y');
-      m.add(x.add(y).equalTo(6));
-      const seen: bigint[] = [];
-      class CB extends CpSolverSolutionCallback {
-        override onSolutionCallback(ctx: SolutionContext): void {
-          seen.push(ctx.value(x));
+    // TEMP DIAGNOSTIC: A/B test the hypothesis that dropping numWorkers=1 is
+    // what reintroduced the flake. Phase A runs enumerate with default workers;
+    // phase B pins numWorkers=1 (the maintainer's original mitigation). One run
+    // shows both distributions.
+    async function sample(pin: boolean, n: number): Promise<number[]> {
+      const out: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const m = new CpModel();
+        const x = m.newIntVar(0, 5, 'x');
+        const y = m.newIntVar(0, 5, 'y');
+        m.add(x.add(y).equalTo(6));
+        const seen: bigint[] = [];
+        class CB extends CpSolverSolutionCallback {
+          override onSolutionCallback(ctx: SolutionContext): void {
+            seen.push(ctx.value(x));
+          }
         }
+        const solver = new CpSolver();
+        solver.parameters.enumerateAllSolutions = true;
+        if (pin) solver.parameters.numWorkers = 1;
+        await solver.solve(m, { callback: new CB() });
+        out.push(seen.length);
       }
-      const solver = new CpSolver();
-      solver.parameters.enumerateAllSolutions = true;
-      const status = await solver.solve(m, { callback: new CB() });
-      counts.push(seen.length);
-      // eslint-disable-next-line no-console
-      console.error(
-        `[diag-js] iter=${i} status=${status} delivered=${seen.length}`,
-      );
+      return out;
     }
+    const noPin = await sample(false, 15);
+    const pinned = await sample(true, 15);
     // eslint-disable-next-line no-console
-    console.error(`[diag-js] counts=${JSON.stringify(counts)}`);
-    // Assertion runs AFTER the logs above, so the distribution is captured
-    // even when this fails.
-    expect(counts.every((c) => c === 5)).toBe(true);
+    console.error(`[diag-js] default-workers=${JSON.stringify(noPin)}`);
+    // eslint-disable-next-line no-console
+    console.error(`[diag-js] numWorkers=1=${JSON.stringify(pinned)}`);
+    // Assertions run after logging so both distributions are captured.
+    expect(pinned.every((c) => c === 5)).toBe(true);
+    expect(noPin.every((c) => c === 5)).toBe(true);
   });
 
   // Regression: looping solve() with a (possibly empty) solution callback used
