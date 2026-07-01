@@ -27,7 +27,7 @@ namespace operations_research::sat::node_binding {
 
 // Tracks in-flight solution-callback dispatches so Solve() can wait for the JS
 // thread to drain them before resolving. Defined in solve_wrapper.cc.
-struct SolutionDispatchTracker;
+struct CallbackDispatchTracker;
 
 // JS-facing wrapper around operations_research::sat::SolveWrapper.
 //
@@ -45,13 +45,13 @@ class SolveWrapperJs : public Napi::ObjectWrap<SolveWrapperJs> {
   /** Releases the log + best-bound + solution TSFNs owned by this wrapper. */
   void ReleaseCallbackTsfns();
   /**
-   * Blocks the calling (solve worker) thread until every solution callback
-   * queued during the solve has been dispatched on the JS thread. This lets
-   * Solve() resolve only after all solutions have been delivered, matching the
-   * "all callbacks fire before solve returns" contract of the Python/Java/C#/Go
-   * bindings.
+   * Blocks the calling (solve worker) thread until every async callback
+   * (solution + best-bound) queued during the solve has been dispatched on the
+   * JS thread. This lets Solve() resolve only after all of them have been
+   * delivered, matching the "all callbacks fire before solve returns" contract
+   * of the Python/Java/C#/Go bindings.
    */
-  void WaitForSolutionDispatchDrain();
+  void WaitForCallbackDispatchDrain();
 
  private:
   // JS-exposed methods.
@@ -93,10 +93,10 @@ class SolveWrapperJs : public Napi::ObjectWrap<SolveWrapperJs> {
   // Guards the lists above against concurrent Cleanup vs. callback paths.
   std::mutex mu_;
 
-  // Shared counter/condition-variable used by WaitForSolutionDispatchDrain()
+  // Shared counter/condition-variable used by WaitForCallbackDispatchDrain()
   // to block the solve worker until all queued solution callbacks have been
   // delivered on the JS thread. Shared with every SolutionBridge.
-  std::shared_ptr<SolutionDispatchTracker> dispatch_tracker_;
+  std::shared_ptr<CallbackDispatchTracker> dispatch_tracker_;
 };
 
 }  // namespace operations_research::sat::node_binding
