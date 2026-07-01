@@ -18,6 +18,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { hasNative } from './_native-helper.js';
+// Type-only import: does not trigger loading of the native addon.
+import type { SolutionContext } from '../src/index.js';
 
 const skip = !hasNative(import.meta.url);
 const d = skip ? describe.skip : describe;
@@ -121,25 +123,57 @@ d('CpSolver — native', () => {
         CpModel,
         CpSolver,
         CpSolverSolutionCallback,
+        CpSolverStatus,
         LinearExpr,
       } = await import('../src/index.js');
+      const feasible = new Set([
+        CpSolverStatus.OPTIMAL,
+        CpSolverStatus.FEASIBLE,
+      ]);
+      let callbackInvocations = 0;
       class Printer extends CpSolverSolutionCallback {
-        override onSolutionCallback(): void {}
+        override onSolutionCallback(ctx: SolutionContext): void {
+          // Touch the context every time so a use-after-free in the
+          // bridge/TSFN teardown path would surface here, not just at
+          // process exit.
+          callbackInvocations++;
+          void ctx.objectiveValue;
+        }
       }
-      for (let i = 0; i < 10; i++) {
+      // The rc.1 teardown segfault reproduced ~30-50% of the time; loop
+      // enough iterations that a regression is very likely to trip at
+      // least once, and assert on every solve so a silent wrong-answer
+      // regression is caught too.
+      const iterations = 25;
+      let callbackSolves = 0;
+      for (let i = 0; i < iterations; i++) {
         const m = new CpModel();
         const s = m.newIntVar(0, 8, 's');
         m.newIntervalVar(s, 2, m.newIntVar(2, 8, 'e'), 'iv');
         m.minimize(LinearExpr.constant(0).add(m.newIntVar(0, 0, 't')));
         const solver = new CpSolver();
         solver.parameters.numWorkers = 1;
-        await solver.solve(m);
+        const status1 = await solver.solve(m);
+        expect(feasible.has(status1)).toBe(true);
+
         m.minimize(s);
-        await solver.solve(m, { callback: new Printer() });
+        // enumerate_all_solutions (single-threaded) guarantees the
+        // callback actually fires, so the bridge/TSFN path is exercised
+        // on every iteration rather than opportunistically.
+        const cbSolver = new CpSolver();
+        cbSolver.parameters.numWorkers = 1;
+        cbSolver.parameters.enumerateAllSolutions = true;
+        const status2 = await cbSolver.solve(m, { callback: new Printer() });
+        expect(feasible.has(status2)).toBe(true);
+        expect(cbSolver.value(s)).toBe(0n);
+        callbackSolves++;
       }
-      expect(true).toBe(true);
+      expect(callbackSolves).toBe(iterations);
+      // If the callback bridge were torn down early (the regression), the
+      // callback would stop firing; require it actually ran.
+      expect(callbackInvocations).toBeGreaterThanOrEqual(iterations);
     },
-    20_000,
+    60_000,
   );
 
   it('stopSearch cancels a long solve within DoD budget (<500ms post-stop)', async () => {
@@ -195,5 +229,26 @@ d('CpSolver — native', () => {
     solver.logCallback = (line) => lines.push(line);
     await solver.solve(m);
     expect(lines.length).toBeGreaterThan(0);
+  });
+
+  it('bestBoundCallback receives finite bound updates during optimization', async () => {
+    const { CpModel, CpSolver, CpSolverStatus, LinearExpr } = await import(
+      '../src/index.js'
+    );
+    const m = new CpModel();
+    const xs = [];
+    for (let i = 0; i < 15; i++) xs.push(m.newIntVar(0, 100, `x${i}`));
+    const total = LinearExpr.sum(xs);
+    m.addLessOrEqual(total, 500);
+    m.maximize(total);
+    const bounds: number[] = [];
+    const solver = new CpSolver();
+    solver.parameters.numSearchWorkers = 1;
+    solver.parameters.maxTimeInSeconds = 10;
+    solver.bestBoundCallback = (b) => bounds.push(b);
+    const status = await solver.solve(m);
+    expect(status).toBe(CpSolverStatus.OPTIMAL);
+    expect(bounds.length).toBeGreaterThan(0);
+    for (const b of bounds) expect(Number.isFinite(b)).toBe(true);
   });
 });

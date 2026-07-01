@@ -359,7 +359,7 @@ void SolveWrapperJs::Cleanup() {
 
 Napi::Value SolveWrapperJs::SetParametersBytes(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (info.Length() < 1 || !info[0].IsBuffer() && !info[0].IsTypedArray()) {
+  if (info.Length() < 1 || (!info[0].IsBuffer() && !info[0].IsTypedArray())) {
     Napi::TypeError::New(env, "setParametersBytes(buffer) requires a Uint8Array")
         .ThrowAsJavaScriptException();
     return env.Undefined();
@@ -379,6 +379,11 @@ Napi::Value SolveWrapperJs::SetParametersBytes(const Napi::CallbackInfo& info) {
 Napi::Value SolveWrapperJs::SetStringParameters(
     const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "setStringParameters(text) requires a string")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
   std::string text = info[0].As<Napi::String>().Utf8Value();
   wrapper_->SetStringParameters(text);
   return env.Undefined();

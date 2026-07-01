@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { BoolVar } from '../src/cp-sat/boolVar.js';
 import { CpModel } from '../src/cp-sat/cpModel.js';
 import { Domain } from '../src/cp-sat/domain.js';
+import { INT64_MAX } from '../src/cp-sat/numbers.js';
 
 describe('CpModel — variable creation', () => {
   it('newIntVar appends a variable', () => {
@@ -143,5 +144,29 @@ describe('CpModel.add rejects non-BoundedLinearExpression (D15)', () => {
     const m = new CpModel();
     // @ts-expect-error — boolean is rejected at compile time.
     expect(() => m.add(true)).toThrow(TypeError);
+  });
+});
+
+describe('CpModel — input-validation guards', () => {
+  it('addHint rejects a negated literal with an integer value', () => {
+    const m = new CpModel();
+    const b = m.newBoolVar('b');
+    // Boolean hints on a negated literal are fine.
+    expect(() => m.addHint(b.not(), true)).not.toThrow();
+    // But routing a negated literal through the integer overload (only
+    // reachable via `as any`) must not silently push undefined into the hint.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => m.addHint(b.not() as any, 3n)).toThrow(TypeError);
+  });
+
+  it('addLinearExpressionInDomain rejects an offset shift that overflows int64', () => {
+    const m = new CpModel();
+    const x = m.newIntVar(0, 10, 'x');
+    // The expression carries a +INT64_MAX offset; shifting the finite upper
+    // bound of the domain by that offset underflows int64.
+    const expr = x.add(INT64_MAX);
+    expect(() => m.addLinearExpressionInDomain(expr, Domain.fromInterval(-5, -2))).toThrow(
+      RangeError,
+    );
   });
 });
