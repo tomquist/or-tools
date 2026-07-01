@@ -628,6 +628,20 @@ Napi::Object InitSolveWrapper(Napi::Env env, Napi::Object exports) {
   *ref = Napi::Persistent(ctor);
   ref->SuppressDestruct();
   exports.Set("SolveWrapper", ctor);
+  // TEMP DIAGNOSTIC: expose cumulative observer-invoked / delivered counts so a
+  // test can read them via JS (native stderr isn't captured by vitest).
+  exports.Set("__diagCounts",
+              Napi::Function::New(env, [](const Napi::CallbackInfo& info) {
+                Napi::Object o = Napi::Object::New(info.Env());
+                o.Set("invoked", Napi::Number::New(
+                                     info.Env(),
+                                     static_cast<double>(g_diag_invoked.load())));
+                o.Set("delivered",
+                      Napi::Number::New(
+                          info.Env(),
+                          static_cast<double>(g_diag_delivered.load())));
+                return o;
+              }));
   return exports;
 }
 
