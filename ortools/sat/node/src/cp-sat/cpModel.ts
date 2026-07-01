@@ -294,13 +294,12 @@ export class CpModel {
     const offset = flat.offset;
     const shifted = domain.flattenedIntervals().map((b) => {
       if (b === INT64_MIN || b === INT64_MAX) return b;
+      // Mirror the C++/Python reference (cp_model_helper.cc uses CapSub):
+      // shifting a finite domain bound by the expression offset saturates to
+      // the int64 range rather than overflowing or throwing.
       const v = b - offset;
-      if (v < INT64_MIN || v > INT64_MAX) {
-        throw new RangeError(
-          `addLinearExpressionInDomain: domain bound ${b} shifted by the ` +
-            `expression offset ${offset} overflows int64 [${INT64_MIN}, ${INT64_MAX}]`,
-        );
-      }
+      if (v < INT64_MIN) return INT64_MIN;
+      if (v > INT64_MAX) return INT64_MAX;
       return v;
     });
     const proto = create(LinearConstraintProtoSchema, {

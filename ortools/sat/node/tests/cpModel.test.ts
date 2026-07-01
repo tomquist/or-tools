@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { BoolVar } from '../src/cp-sat/boolVar.js';
 import { CpModel } from '../src/cp-sat/cpModel.js';
 import { Domain } from '../src/cp-sat/domain.js';
-import { INT64_MAX } from '../src/cp-sat/numbers.js';
+import { INT64_MAX, INT64_MIN } from '../src/cp-sat/numbers.js';
 
 describe('CpModel — variable creation', () => {
   it('newIntVar appends a variable', () => {
@@ -159,14 +159,21 @@ describe('CpModel — input-validation guards', () => {
     expect(() => m.addHint(b.not() as any, 3n)).toThrow(TypeError);
   });
 
-  it('addLinearExpressionInDomain rejects an offset shift that overflows int64', () => {
+  it('addLinearExpressionInDomain saturates an overflowing offset shift (CapSub parity)', () => {
     const m = new CpModel();
     const x = m.newIntVar(0, 10, 'x');
-    // The expression carries a +INT64_MAX offset; shifting the finite upper
-    // bound of the domain by that offset underflows int64.
+    // expr = x + INT64_MAX shifts each finite domain bound by -INT64_MAX.
+    // The C++/Python reference (cp_model_helper.cc) uses CapSub, so an
+    // out-of-range result clamps to the int64 bound instead of throwing:
+    //   CapSub(-2, INT64_MAX)          -> INT64_MIN (underflow, saturated)
+    //   CapSub(INT64_MAX - 1, INT64_MAX) -> -1       (in range)
     const expr = x.add(INT64_MAX);
-    expect(() => m.addLinearExpressionInDomain(expr, Domain.fromInterval(-5, -2))).toThrow(
-      RangeError,
+    const c = m.addLinearExpressionInDomain(
+      expr,
+      Domain.fromInterval(-2, INT64_MAX - 1n),
     );
+    expect(c.proto.constraint.case).toBe('linear');
+    if (c.proto.constraint.case !== 'linear') throw new Error('expected linear');
+    expect(c.proto.constraint.value.domain).toEqual([INT64_MIN, -1n]);
   });
 });
