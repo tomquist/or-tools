@@ -113,41 +113,29 @@ d('CpSolver — native', () => {
       CpSolver,
       CpSolverSolutionCallback,
     } = await import('../src/index.js');
-    // TEMP DIAGNOSTIC: read the native cumulative observer-invoked / delivered
-    // counters around each solve to determine, definitively, whether a
-    // delivered=0 solve had the C++ observer invoked 0 times (solver never
-    // called us) or 5 times (delivery/drain drop).
-    const { native } = await import('../src/internal/native.js');
-    const diag = (): { invoked: number; delivered: number } =>
-      (native as unknown as {
-        __diagCounts: () => { invoked: number; delivered: number };
-      }).__diagCounts();
-    const rows: string[] = [];
-    for (let i = 0; i < 25; i++) {
-      const m = new CpModel();
-      const x = m.newIntVar(0, 5, 'x');
-      const y = m.newIntVar(0, 5, 'y');
-      m.add(x.add(y).equalTo(6));
-      const seen: bigint[] = [];
-      class CB extends CpSolverSolutionCallback {
-        override onSolutionCallback(ctx: SolutionContext): void {
-          seen.push(ctx.value(x));
-        }
+    // Same reliable enumeration model as above (x + y == 6 => 5 solutions).
+    const m = new CpModel();
+    const x = m.newIntVar(0, 5, 'x');
+    const y = m.newIntVar(0, 5, 'y');
+    m.add(x.add(y).equalTo(6));
+    const seen: bigint[] = [];
+    class CB extends CpSolverSolutionCallback {
+      override onSolutionCallback(ctx: SolutionContext): void {
+        seen.push(ctx.value(x));
       }
-      const before = diag();
-      const solver = new CpSolver();
-      solver.parameters.enumerateAllSolutions = true;
-      await solver.solve(m, { callback: new CB() });
-      const after = diag();
-      rows.push(
-        `i=${i} invoked=${after.invoked - before.invoked} delivered=${
-          after.delivered - before.delivered
-        } seen=${seen.length}`,
-      );
     }
-    // eslint-disable-next-line no-console
-    console.error('[diag-js]\n' + rows.join('\n'));
-    expect(rows.every((r) => r.endsWith('seen=5'))).toBe(true);
+    const solver = new CpSolver();
+    solver.parameters.enumerateAllSolutions = true;
+    await solver.solve(m, { callback: new CB() });
+    // Regression guard for the solution-dispatch drain: every solution found
+    // during the solve must be delivered to the callback *before* the promise
+    // resolves. Without drain-before-resolve a fast solve could resolve while
+    // callbacks were still queued on the JS thread, dropping the tail (and
+    // sometimes the whole batch). All five must be present here, matching the
+    // synchronous all-callbacks-before-return contract of the Python/Java
+    // bindings.
+    const sorted = [...seen].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    expect(sorted).toEqual([1n, 2n, 3n, 4n, 5n]);
   });
 
   // Regression: looping solve() with a (possibly empty) solution callback used

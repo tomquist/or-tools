@@ -115,14 +115,22 @@ function tryLoadFromDevFallback(triplet: string): NativeTypes.NativeModule | nul
 function loadNative(): NativeTypes.NativeModule {
   if (cached) return cached;
   const id = detectPlatform();
-  const fromPkg = tryLoadFromPlatformPackage(id.pkg);
-  if (fromPkg) {
-    cached = fromPkg;
-    return cached;
-  }
+  // Prefer an in-tree build (prebuilds/<triplet>/) when present. This directory
+  // only exists in a source checkout or after an explicit local/CI build -- the
+  // published main package excludes it (see `files` in package.json), so end
+  // users never have it and always fall through to the platform package below.
+  // Preferring it means a source build (and CI, which builds the addon before
+  // testing) exercises the freshly-built binary rather than a possibly-stale
+  // published `@ortools-node/cp-sat-<triplet>` optional dependency that npm may
+  // have installed alongside it.
   const fromDev = tryLoadFromDevFallback(id.triplet);
   if (fromDev) {
     cached = fromDev;
+    return cached;
+  }
+  const fromPkg = tryLoadFromPlatformPackage(id.pkg);
+  if (fromPkg) {
+    cached = fromPkg;
     return cached;
   }
   throw new Error(
