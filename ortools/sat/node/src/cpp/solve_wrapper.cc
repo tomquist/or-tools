@@ -16,6 +16,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>  // TEMP DIAGNOSTIC (solution-callback tracing)
 #include <memory>
 #include <mutex>
 #include <string>
@@ -29,6 +30,14 @@
 #include "ortools/sat/swig_helper.h"
 
 namespace operations_research::sat::node_binding {
+
+// TEMP DIAGNOSTIC: trace how many times the SAT solver invokes our solution
+// observer (worker thread) vs how many reach the user callback (JS thread), to
+// locate where enumerated solutions are lost on CI. Remove after diagnosis.
+namespace {
+std::atomic<long> g_diag_invoked{0};
+std::atomic<long> g_diag_delivered{0};
+}  // namespace
 
 // ----------------------------------------------------------------------------
 // Solution-dispatch tracker
@@ -120,10 +129,19 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
 
   // Called from a SAT worker thread.
   void OnSolutionCallback() const override {
-    if (detached_.load()) return;
+    // TEMP DIAGNOSTIC
+    long inv = ++g_diag_invoked;
+    fprintf(stderr, "[ortools-diag] observer invoked (total=%ld)\n", inv);
+    if (detached_.load()) {
+      fprintf(stderr, "[ortools-diag] -> skipped: bridge detached\n");
+      return;
+    }
 
     auto resp = SharedResponse();
-    if (!resp) return;
+    if (!resp) {
+      fprintf(stderr, "[ortools-diag] -> skipped: null SharedResponse\n");
+      return;
+    }
 
     // Capture the wrapper pointer so the JS dispatcher can call back into
     // SolveWrapper::StopSearch() if the user's callback requests it.
@@ -140,6 +158,8 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
       // TSFN closed (e.g. Detach() raced with a worker callback). Drop the
       // payload; nothing was queued so the dispatcher will not run -- so
       // balance the Begin() here.
+      fprintf(stderr, "[ortools-diag] -> BlockingCall failed status=%d\n",
+              static_cast<int>(status));  // TEMP DIAGNOSTIC
       delete payload;
       if (tracker_) tracker_->End();
     }
@@ -176,6 +196,8 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
       }
     } drain_guard{p ? p->tracker : nullptr};
 
+    fprintf(stderr, "[ortools-diag] dispatch entry (env=%s)\n",
+            env == nullptr ? "null" : "ok");  // TEMP DIAGNOSTIC
     if (env == nullptr || !p) return;
     // Defensive: skip if the bridge was already detached. In the normal flow
     // this never triggers -- the solve worker drains all queued payloads (see
@@ -183,7 +205,10 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
     // solution is delivered before solve() resolves. This guard only covers
     // teardown-time edge cases (e.g. a stray payload during process exit),
     // where invoking the user's callback would be unsafe or surprising.
-    if (p->bridge != nullptr && p->bridge->detached_.load()) return;
+    if (p->bridge != nullptr && p->bridge->detached_.load()) {
+      fprintf(stderr, "[ortools-diag] -> dispatch skipped: detached\n");  // TEMP
+      return;
+    }
 
     Napi::HandleScope scope(env);
 
@@ -266,6 +291,10 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
 
     try {
       p->fn_ref->Value().Call(p->target_ref->Value(), {ctx});
+      // TEMP DIAGNOSTIC
+      long del = ++g_diag_delivered;
+      fprintf(stderr, "[ortools-diag] delivered to user callback (total=%ld)\n",
+              del);
     } catch (const Napi::Error& err) {
       // Honor the C++/exception propagation contract: surface the error to
       // the solver thread by stopping the search. The promise from solve()
