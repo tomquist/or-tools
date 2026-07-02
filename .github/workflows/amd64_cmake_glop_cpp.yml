@@ -69,8 +69,12 @@ jobs:
             install_target: install
           },
           {
+            # Pinned to windows-2022: windows-latest no longer ships Visual
+            # Studio 2022, so the "Visual Studio 17 2022" generator fails CMake
+            # configure with "could not find any instance of Visual Studio".
+            # windows-2022 provides the matching toolchain.
             platform: amd64,
-            runner: "windows-latest",
+            runner: "windows-2022",
             generator: "Visual Studio 17 2022",
             config: Release,
             build_target: ALL_BUILD,

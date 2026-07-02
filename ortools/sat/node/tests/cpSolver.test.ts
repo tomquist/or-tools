@@ -18,6 +18,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { hasNative } from './_native-helper.js';
+// Type-only import: does not trigger loading of the native addon.
+import type { SolutionContext } from '../src/index.js';
 
 const skip = !hasNative(import.meta.url);
 const d = skip ? describe.skip : describe;
@@ -78,34 +80,62 @@ d('CpSolver — native', () => {
       CpSolverSolutionCallback,
     } = await import('../src/index.js');
     const m = new CpModel();
-    const x = m.newIntVar(0, 3, 'x');
-    // We use enumerate_all_solutions instead of maximize(x): on a
-    // 1-variable model CP-SAT can root-propagate the optimum without
-    // emitting any intermediate solution (observed on faster macOS x64
-    // runners), leaving the callback uninvoked and racing the
-    // `seen > 0` assertion. Enumerate guarantees the callback fires
-    // for every feasible value, which is what we actually want to
-    // exercise here: that the callback is invoked and that
-    // `this.value()` works inside it.
+    // Mirror the reference binding's own callback test
+    // (ortools/sat/python/cp_model_test.py::test_search_for_all_solutions):
+    // a constrained two-variable model, x + y == 6 with x,y in [0,5]. This
+    // forces the solver to actually enumerate during search (5 solutions),
+    // which reliably invokes the callback. A single free variable is instead
+    // resolved in presolve/root and does NOT reliably emit per-solution
+    // callbacks, which was the real cause of the macOS CI flake.
+    const x = m.newIntVar(0, 5, 'x');
+    const y = m.newIntVar(0, 5, 'y');
+    m.add(x.add(y).equalTo(6));
     const seenValues: bigint[] = [];
     class CB extends CpSolverSolutionCallback {
       override onSolutionCallback(): void {
+        // this.value(...) reads the thread-local active context.
         seenValues.push(this.value(x));
       }
     }
     const solver = new CpSolver();
-    // enumerate_all_solutions requires single-threaded search:
-    // CP-SAT's worker portfolio doesn't reliably surface intermediate
-    // solutions to the callback when parallelism is on, which made
-    // this test flaky on the macos-15-intel runner. Pinning workers
-    // to 1 makes enumeration deterministic.
     solver.parameters.enumerateAllSolutions = true;
-    solver.parameters.numSearchWorkers = 1;
     await solver.solve(m, { callback: new CB() });
-    expect(seenValues.length).toBeGreaterThan(0);
+    // Exactly the five feasible x values (x + y == 6, y in [0,5] => x in [1,5]).
+    expect(seenValues.length).toBe(5);
     for (const v of seenValues) {
-      expect(v >= 0n && v <= 3n).toBe(true);
+      expect(v >= 1n && v <= 5n).toBe(true);
     }
+  });
+
+  it('delivers every enumerated solution before solve() resolves', async () => {
+    const {
+      CpModel,
+      CpSolver,
+      CpSolverSolutionCallback,
+    } = await import('../src/index.js');
+    // Same reliable enumeration model as above (x + y == 6 => 5 solutions).
+    const m = new CpModel();
+    const x = m.newIntVar(0, 5, 'x');
+    const y = m.newIntVar(0, 5, 'y');
+    m.add(x.add(y).equalTo(6));
+    const seen: bigint[] = [];
+    class CB extends CpSolverSolutionCallback {
+      override onSolutionCallback(ctx: SolutionContext): void {
+        seen.push(ctx.value(x));
+      }
+    }
+    const solver = new CpSolver();
+    solver.parameters.enumerateAllSolutions = true;
+    await solver.solve(m, { callback: new CB() });
+    // Regression guard for the solution-dispatch drain: every solution found
+    // during the solve must be delivered to the callback *before* the promise
+    // resolves. Without drain-before-resolve a fast solve could resolve while
+    // callbacks were still queued on the JS thread, dropping the tail (and
+    // sometimes the whole batch). All five must be present here, matching the
+    // synchronous all-callbacks-before-return contract of the Python/Java
+    // bindings.
+    const sorted = [...seen].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    expect(sorted).toEqual([1n, 2n, 3n, 4n, 5n]);
   });
 
   // Regression: looping solve() with a (possibly empty) solution callback used
@@ -121,25 +151,46 @@ d('CpSolver — native', () => {
         CpModel,
         CpSolver,
         CpSolverSolutionCallback,
-        LinearExpr,
+        CpSolverStatus,
       } = await import('../src/index.js');
+      const feasible = new Set([
+        CpSolverStatus.OPTIMAL,
+        CpSolverStatus.FEASIBLE,
+      ]);
       class Printer extends CpSolverSolutionCallback {
-        override onSolutionCallback(): void {}
+        override onSolutionCallback(ctx: SolutionContext): void {
+          // Touch the context whenever it fires so a use-after-free in the
+          // bridge/TSFN teardown path would surface here. We do NOT assert on
+          // how often it fires: CP-SAT may solve the optimum in presolve
+          // without emitting a solution callback, and the async TSFN dispatch
+          // can drop trailing callbacks on a fast solve. Neither affects the
+          // teardown crash-safety this test guards.
+          void ctx.objectiveValue;
+        }
       }
-      for (let i = 0; i < 10; i++) {
+      // The rc.1 teardown segfault reproduced ~30-50% of the time; loop enough
+      // iterations that a regression is very likely to trip at least once.
+      // The oracle is deterministic — every solve must be feasible and return
+      // the correct minimizer — and a torn-down bridge would crash the worker
+      // rather than fail an assertion. Each iteration attaches a callback so
+      // the bridge is created and released on all 25 cycles.
+      const iterations = 25;
+      let completed = 0;
+      for (let i = 0; i < iterations; i++) {
         const m = new CpModel();
         const s = m.newIntVar(0, 8, 's');
         m.newIntervalVar(s, 2, m.newIntVar(2, 8, 'e'), 'iv');
-        m.minimize(LinearExpr.constant(0).add(m.newIntVar(0, 0, 't')));
+        m.minimize(s);
         const solver = new CpSolver();
         solver.parameters.numWorkers = 1;
-        await solver.solve(m);
-        m.minimize(s);
-        await solver.solve(m, { callback: new Printer() });
+        const status = await solver.solve(m, { callback: new Printer() });
+        expect(feasible.has(status)).toBe(true);
+        expect(solver.value(s)).toBe(0n);
+        completed++;
       }
-      expect(true).toBe(true);
+      expect(completed).toBe(iterations);
     },
-    20_000,
+    60_000,
   );
 
   it('stopSearch cancels a long solve within DoD budget (<500ms post-stop)', async () => {
@@ -195,5 +246,36 @@ d('CpSolver — native', () => {
     solver.logCallback = (line) => lines.push(line);
     await solver.solve(m);
     expect(lines.length).toBeGreaterThan(0);
+  });
+
+  it('bestBoundCallback receives the objective bound', async () => {
+    const { CpModel, CpSolver, CpSolverStatus } = await import('../src/index.js');
+    // Mirror the reference binding's best-bound test
+    // (ortools/sat/python/cp_model_test.py::test_best_bound_callback): a small
+    // boolean model with a float objective, num_workers=1 and
+    // linearization_level=2 so the LP relaxation produces a bound the callback
+    // reports. The optimal bound is 2.6.
+    const m = new CpModel();
+    const x0 = m.newBoolVar('x0');
+    const x1 = m.newBoolVar('x1');
+    const x2 = m.newBoolVar('x2');
+    const x3 = m.newBoolVar('x3');
+    m.addBoolOr([x0, x1, x2, x3]);
+    m.minimizeFloat(
+      x0.mul(3).add(x1.mul(2)).add(x2.mul(4)).add(x3.mul(5)).add(0.6),
+    );
+    let lastBound = 0;
+    let calls = 0;
+    const solver = new CpSolver();
+    solver.parameters.numWorkers = 1;
+    solver.parameters.linearizationLevel = 2;
+    solver.bestBoundCallback = (b) => {
+      lastBound = b;
+      calls++;
+    };
+    const status = await solver.solve(m);
+    expect(status).toBe(CpSolverStatus.OPTIMAL);
+    expect(calls).toBeGreaterThan(0);
+    expect(lastBound).toBeCloseTo(2.6, 6);
   });
 });

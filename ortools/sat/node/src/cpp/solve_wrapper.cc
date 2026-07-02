@@ -14,6 +14,7 @@
 #include "ortools/sat/node/src/cpp/solve_wrapper.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -28,6 +29,44 @@
 #include "ortools/sat/swig_helper.h"
 
 namespace operations_research::sat::node_binding {
+
+// ----------------------------------------------------------------------------
+// Callback-dispatch tracker
+// ----------------------------------------------------------------------------
+//
+// Counts async callback payloads (solution, best-bound, and log) that have been
+// enqueued to the JS thread but not yet dispatched. The solve worker thread
+// waits on this (via WaitForCallbackDispatchDrain) so that Solve()'s promise
+// resolves only after every one has been delivered to the user's callback --
+// matching the synchronous "all callbacks fire before solve() returns" contract
+// of the Python/Java/C#/Go bindings, without making the JS solve() itself
+// blocking.
+struct CallbackDispatchTracker {
+  std::mutex mu;
+  std::condition_variable cv;
+  int pending = 0;
+
+  // Called on a SAT worker thread just before a payload is enqueued.
+  void Begin() {
+    std::lock_guard<std::mutex> lock(mu);
+    ++pending;
+  }
+  // Called on the JS thread once a payload has been fully dispatched (on every
+  // return path of the dispatcher, so a skipped payload still counts down).
+  void End() {
+    {
+      std::lock_guard<std::mutex> lock(mu);
+      --pending;
+    }
+    cv.notify_all();
+  }
+  // Called on the solve worker thread; returns once all enqueued payloads have
+  // been dispatched. Safe when pending is already zero (no callbacks).
+  void Wait() {
+    std::unique_lock<std::mutex> lock(mu);
+    cv.wait(lock, [this] { return pending == 0; });
+  }
+};
 
 // ----------------------------------------------------------------------------
 // Solution callback bridge
@@ -56,9 +95,11 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
   // returned pointer is valid until Detach() is called *and* the TSFN queue
   // has been fully drained on the JS thread. Callers must only hold it
   // non-owningly.
-  static SolutionBridge* Create(Napi::Env env, Napi::Object target_obj,
-                                Napi::Function on_solution_fn) {
+  static SolutionBridge* Create(
+      Napi::Env env, Napi::Object target_obj, Napi::Function on_solution_fn,
+      std::shared_ptr<CallbackDispatchTracker> tracker) {
     auto* bridge = new SolutionBridge();
+    bridge->tracker_ = std::move(tracker);
     bridge->target_ref_ = Napi::Persistent(target_obj);
     bridge->on_solution_ref_ = Napi::Persistent(on_solution_fn);
     bridge->tsfn_ = Napi::ThreadSafeFunction::New(
@@ -89,13 +130,19 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
     // SolveWrapper::StopSearch() if the user's callback requests it.
     sat::SolveWrapper* w = wrapper();
 
-    auto* payload = new Payload{resp, w, this, &target_ref_, &on_solution_ref_};
+    // Count this payload as in-flight before enqueuing so the solve worker can
+    // wait for it to drain. The matching End() runs in DispatchOnJsThread.
+    if (tracker_) tracker_->Begin();
+    auto* payload =
+        new Payload{resp, w, this, &target_ref_, &on_solution_ref_, tracker_};
     auto status =
         tsfn_.BlockingCall(payload, &SolutionBridge::DispatchOnJsThread);
     if (status != napi_ok) {
       // TSFN closed (e.g. Detach() raced with a worker callback). Drop the
-      // payload; nothing was queued so the dispatcher will not run.
+      // payload; nothing was queued so the dispatcher will not run -- so
+      // balance the Begin() here.
       delete payload;
+      if (tracker_) tracker_->End();
     }
   }
 
@@ -114,18 +161,29 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
     const SolutionBridge* bridge;
     const Napi::Reference<Napi::Object>* target_ref;
     const Napi::Reference<Napi::Function>* fn_ref;
+    std::shared_ptr<CallbackDispatchTracker> tracker;
   };
 
   static void DispatchOnJsThread(Napi::Env env, Napi::Function /*noop*/,
                                  Payload* payload) {
     std::unique_ptr<Payload> p(payload);
+    // Decrement the in-flight counter on every return path (including the
+    // env==nullptr teardown path and the detached short-circuit below) so that
+    // WaitForCallbackDispatchDrain() can never hang.
+    struct DrainGuard {
+      std::shared_ptr<CallbackDispatchTracker> t;
+      ~DrainGuard() {
+        if (t) t->End();
+      }
+    } drain_guard{p ? p->tracker : nullptr};
+
     if (env == nullptr || !p) return;
-    // If the bridge was detached after this payload was queued (typical when
-    // the SAT worker fired one last callback as solve() was completing), skip
-    // the user dispatch entirely. The JS-side solve() promise has already
-    // resolved, the SolveWrapper backing ctx.stopSearch() may have been
-    // destroyed, and invoking the user's callback here would surface a
-    // surprise "extra" solution after solve() returned.
+    // Defensive: skip if the bridge was already detached. In the normal flow
+    // this never triggers -- the solve worker drains all queued payloads (see
+    // WaitForCallbackDispatchDrain) *before* OnOK detaches the bridge, so every
+    // solution is delivered before solve() resolves. This guard only covers
+    // teardown-time edge cases (e.g. a stray payload during process exit),
+    // where invoking the user's callback would be unsafe or surprising.
     if (p->bridge != nullptr && p->bridge->detached_.load()) return;
 
     Napi::HandleScope scope(env);
@@ -233,6 +291,8 @@ class SolveWrapperJs::SolutionBridge : public sat::SolutionCallback {
   Napi::ThreadSafeFunction tsfn_;
   Napi::Reference<Napi::Object> target_ref_;
   Napi::Reference<Napi::Function> on_solution_ref_;
+  // Shared with the owning SolveWrapperJs; tracks in-flight dispatches.
+  std::shared_ptr<CallbackDispatchTracker> tracker_;
   // Set when Detach() runs; suppresses further BlockingCalls (which would
   // race with the TSFN being released) without changing the visible "alive"
   // state on the JS side.
@@ -269,6 +329,11 @@ class SolveAsyncWorker : public Napi::AsyncWorker {
     }
     sat::CpSolverResponse res = owner_->native()->Solve(req);
     res.SerializeToString(&response_bytes_);
+    // Solve() has returned, so all solution callbacks have been enqueued (no
+    // solver threads remain). Block here until the JS thread has dispatched
+    // every one of them, so OnOK resolves the promise only after the user's
+    // callback has seen all solutions -- matching the other bindings.
+    if (owner_ != nullptr) owner_->WaitForCallbackDispatchDrain();
   }
 
   void OnOK() override {
@@ -332,7 +397,8 @@ SolveWrapperJs::SolveWrapperJs(const Napi::CallbackInfo& info)
       wrapper_(std::make_unique<sat::SolveWrapper>()),
       alive_(true),
       solve_in_flight_(false),
-      solve_done_(false) {}
+      solve_done_(false),
+      dispatch_tracker_(std::make_shared<CallbackDispatchTracker>()) {}
 
 SolveWrapperJs::~SolveWrapperJs() { Cleanup(); }
 
@@ -351,6 +417,10 @@ void SolveWrapperJs::ReleaseCallbackTsfns() {
   solution_bridges_.clear();
 }
 
+void SolveWrapperJs::WaitForCallbackDispatchDrain() {
+  if (dispatch_tracker_) dispatch_tracker_->Wait();
+}
+
 void SolveWrapperJs::Cleanup() {
   if (!alive_.exchange(false)) return;
   ReleaseCallbackTsfns();
@@ -359,7 +429,7 @@ void SolveWrapperJs::Cleanup() {
 
 Napi::Value SolveWrapperJs::SetParametersBytes(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  if (info.Length() < 1 || !info[0].IsBuffer() && !info[0].IsTypedArray()) {
+  if (info.Length() < 1 || (!info[0].IsBuffer() && !info[0].IsTypedArray())) {
     Napi::TypeError::New(env, "setParametersBytes(buffer) requires a Uint8Array")
         .ThrowAsJavaScriptException();
     return env.Undefined();
@@ -379,6 +449,11 @@ Napi::Value SolveWrapperJs::SetParametersBytes(const Napi::CallbackInfo& info) {
 Napi::Value SolveWrapperJs::SetStringParameters(
     const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "setStringParameters(text) requires a string")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
   std::string text = info[0].As<Napi::String>().Utf8Value();
   wrapper_->SetStringParameters(text);
   return env.Undefined();
@@ -402,17 +477,29 @@ Napi::Value SolveWrapperJs::AddLogCallback(const Napi::CallbackInfo& info) {
   }
   // Capture by value: TSFN is reference-counted, safe to move into the
   // lambda. The lambda lives in the SolverLogger; teardown happens when
-  // SolveWrapper is destroyed in Cleanup().
-  wrapper_->AddLogCallback([tsfn](const std::string& message) {
+  // SolveWrapper is destroyed in Cleanup(). Route through the dispatch tracker
+  // (like solution/best-bound) so log lines are delivered before solve()
+  // resolves, matching the reference bindings' synchronous logging rather than
+  // dropping the tail on a fast solve.
+  auto tracker = dispatch_tracker_;
+  wrapper_->AddLogCallback([tsfn, tracker](const std::string& message) {
     std::string* copy = new std::string(message);
+    if (tracker) tracker->Begin();
     auto status = tsfn.NonBlockingCall(
-        copy, [](Napi::Env env, Napi::Function jsfn, std::string* msg) {
+        copy, [tracker](Napi::Env env, Napi::Function jsfn, std::string* msg) {
           std::unique_ptr<std::string> owned(msg);
+          struct DrainGuard {
+            std::shared_ptr<CallbackDispatchTracker> t;
+            ~DrainGuard() {
+              if (t) t->End();
+            }
+          } drain_guard{tracker};
           if (env == nullptr) return;
           jsfn.Call({Napi::String::New(env, *owned)});
         });
     if (status != napi_ok) {
       delete copy;
+      if (tracker) tracker->End();
     }
   });
   return env.Undefined();
@@ -435,16 +522,31 @@ Napi::Value SolveWrapperJs::AddBestBoundCallback(
     std::lock_guard<std::mutex> lock(mu_);
     best_bound_tsfns_.push_back(tsfn);
   }
-  wrapper_->AddBestBoundCallback([tsfn](double bound) {
+  // Track best-bound dispatches in the same counter as solution callbacks so
+  // WaitForCallbackDispatchDrain() also waits for them: without this, a fast
+  // solve resolves before a queued best-bound update is delivered, dropping it
+  // (the reference bindings deliver every bound synchronously before returning).
+  auto tracker = dispatch_tracker_;
+  wrapper_->AddBestBoundCallback([tsfn, tracker](double bound) {
     double* copy = new double(bound);
+    if (tracker) tracker->Begin();
     auto status = tsfn.NonBlockingCall(
-        copy, [](Napi::Env env, Napi::Function jsfn, double* d) {
+        copy, [tracker](Napi::Env env, Napi::Function jsfn, double* d) {
           std::unique_ptr<double> owned(d);
+          // Decrement on every path (including env==nullptr teardown) so the
+          // drain can't hang.
+          struct DrainGuard {
+            std::shared_ptr<CallbackDispatchTracker> t;
+            ~DrainGuard() {
+              if (t) t->End();
+            }
+          } drain_guard{tracker};
           if (env == nullptr) return;
           jsfn.Call({Napi::Number::New(env, *owned)});
         });
     if (status != napi_ok) {
       delete copy;
+      if (tracker) tracker->End();
     }
   });
   return env.Undefined();
@@ -470,8 +572,8 @@ Napi::Value SolveWrapperJs::AddSolutionCallback(
   // The bridge is owned by its own TSFN; we keep a non-owning pointer so we
   // can Detach() it after solve completes. See SolutionBridge for lifetime
   // details.
-  SolutionBridge* bridge =
-      SolutionBridge::Create(env, target, on_sol_v.As<Napi::Function>());
+  SolutionBridge* bridge = SolutionBridge::Create(
+      env, target, on_sol_v.As<Napi::Function>(), dispatch_tracker_);
   wrapper_->AddSolutionCallback(*bridge);
   {
     std::lock_guard<std::mutex> lock(mu_);

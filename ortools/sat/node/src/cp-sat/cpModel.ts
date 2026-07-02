@@ -294,7 +294,13 @@ export class CpModel {
     const offset = flat.offset;
     const shifted = domain.flattenedIntervals().map((b) => {
       if (b === INT64_MIN || b === INT64_MAX) return b;
-      return b - offset;
+      // Mirror the C++/Python reference (cp_model_helper.cc uses CapSub):
+      // shifting a finite domain bound by the expression offset saturates to
+      // the int64 range rather than overflowing or throwing.
+      const v = b - offset;
+      if (v < INT64_MIN) return INT64_MIN;
+      if (v > INT64_MAX) return INT64_MAX;
+      return v;
     });
     const proto = create(LinearConstraintProtoSchema, {
       vars: [...flat.vars],
@@ -949,7 +955,18 @@ export class CpModel {
       }
     } else {
       const iv = target as IntVar;
-      hint.vars.push(iv.index as number);
+      const idx = iv.index as number | undefined;
+      if (typeof idx !== 'number') {
+        // A NotBoolVar (negated literal) has no variable index; routing it
+        // through the integer overload (e.g. via `as any`) would otherwise
+        // push `undefined` into solutionHint.vars and corrupt the hint.
+        throw new TypeError(
+          'addHint(target, value): an integer hint requires an IntVar/BoolVar ' +
+            'target with a variable index. To hint a negated literal, hint the ' +
+            'underlying BoolVar with a boolean value instead.',
+        );
+      }
+      hint.vars.push(idx);
       hint.values.push(asInt64(value));
     }
   }

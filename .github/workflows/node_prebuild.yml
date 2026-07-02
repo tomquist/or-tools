@@ -139,6 +139,10 @@ jobs:
       - name: Run tests
         working-directory: ortools/sat/node
         shell: bash
+        # The addon is built just above, so a missing prebuild here is a real
+        # regression: fail loudly instead of letting the native suites skip.
+        env:
+          REQUIRE_NATIVE: "1"
         run: npm test
 
       - name: Upload prebuild bundle

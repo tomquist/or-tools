@@ -55,8 +55,8 @@ export function prebuildTriplet(): string {
   return `${process.platform}-${a}`;
 }
 
-export function hasNative(testFileUrl: string): boolean {
-  const here = dirname(fileURLToPath(testFileUrl));
+function prebuildPresent(): boolean {
+  const here = dirname(fileURLToPath(import.meta.url));
   const dir = join(here, '..', 'prebuilds', prebuildTriplet());
   try {
     return readdirSync(dir).some((f) => f.endsWith('.node'));
@@ -66,4 +66,31 @@ export function hasNative(testFileUrl: string): boolean {
     // path above covers them. Kept for older in-tree prebuilds.
     return existsSync(join(dir, 'node.napi.node'));
   }
+}
+
+/**
+ * Whether the native addon is available for this platform.
+ *
+ * On a developer machine that hasn't built the addon this returns `false`
+ * and the native suites `describe.skip` themselves so the pure-TS tests
+ * still run. On CI that MUST exercise the native paths, set
+ * `REQUIRE_NATIVE=1`: a missing prebuild then throws at import time, turning
+ * a would-be silent skip into a hard test failure. This prevents a broken or
+ * mismatched `.node` from passing the gate simply because the native tests
+ * were quietly skipped.
+ *
+ * The `testFileUrl` parameter is retained for call-site compatibility; the
+ * probe itself is resolved relative to this helper.
+ */
+export function hasNative(_testFileUrl?: string): boolean {
+  const present = prebuildPresent();
+  if (!present && process.env.REQUIRE_NATIVE) {
+    throw new Error(
+      `REQUIRE_NATIVE is set but no native addon was found under ` +
+        `prebuilds/${prebuildTriplet()}/. Build the addon before running the ` +
+        `test suite (see CONTRIBUTING.md), or unset REQUIRE_NATIVE to allow ` +
+        `native suites to skip on machines without a build.`,
+    );
+  }
+  return present;
 }
